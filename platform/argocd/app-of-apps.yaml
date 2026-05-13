@@ -1,0 +1,30 @@
+---
+# Root App-of-Apps — applied once via `kubectl apply -f` after ArgoCD is up.
+# ArgoCD takes over from here: this app points to platform/argocd/apps/, which
+# contains one Application per platform component. Adding a component is a
+# matter of dropping a new YAML in that directory.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-of-apps
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    targetRevision: main
+    path: platform/argocd/apps
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

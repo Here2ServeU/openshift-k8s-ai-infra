@@ -1,0 +1,33 @@
+---
+# Embedding service — sentence-transformers as a KServe InferenceService.
+# Sits alongside vLLM so the inference gateway can route /v1/embeddings here
+# (RAG pipelines, vector DB indexing) while routing /v1/chat/completions to vLLM.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: embeddings
+  namespace: workloads
+  labels:
+    app: embeddings
+    component: serving
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 6
+    scaleTarget: 60        # target CPU% for HPA (KServe creates an HPA)
+    scaleMetric: cpu
+    containers:
+      - name: kserve-container
+        image: kserve/huggingfaceserver:v0.13.1
+        args:
+          - --model_name=embeddings
+          - --model_id=sentence-transformers/all-MiniLM-L6-v2
+          - --task=text_embedding
+        resources:
+          requests: { cpu: "1",   memory: "1Gi" }
+          limits:   { cpu: "2",   memory: "2Gi" }
+        readinessProbe:
+          httpGet: { path: /v1/models/embeddings, port: 8080 }
+          periodSeconds: 10

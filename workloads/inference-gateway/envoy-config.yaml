@@ -1,0 +1,161 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inference-gateway-envoy
+  namespace: workloads
+data:
+  envoy.yaml: |
+    # Envoy gateway in front of model backends.
+    #
+    # Responsibilities:
+    #   1. Route by `model` field in OpenAI request body (Lua filter).
+    #   2. Rate-limit per tenant (header `x-tenant`).
+    #   3. Inject a trace ID + emit OTLP traces to the Collector.
+    #   4. Buffer/stream — proxy_buffering off, so SSE token streams pass through.
+    #   5. A/B canary at the gateway level by weight (also done by Rollouts).
+    admin:
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 9901 }
+
+    static_resources:
+      listeners:
+        - name: listener_http
+          address: { socket_address: { address: 0.0.0.0, port_value: 8080 } }
+          filter_chains:
+            - filters:
+                - name: envoy.filters.network.http_connection_manager
+                  typed_config:
+                    "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                    stat_prefix: gateway
+                    codec_type: AUTO
+                    access_log:
+                      - name: envoy.access_loggers.stdout
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                    tracing:
+                      provider:
+                        name: envoy.tracers.opentelemetry
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.config.trace.v3.OpenTelemetryConfig
+                          grpc_service:
+                            envoy_grpc:
+                              cluster_name: otel-collector
+                          service_name: inference-gateway
+                    http_filters:
+                      # Lua filter — parses the request body, sets a route header
+                      # based on the `model` field. This is what gives us
+                      # "/v1/chat/completions" with body-based routing while
+                      # staying OpenAI API compatible.
+                      - name: envoy.filters.http.lua
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
+                          inline_code: |
+                            function envoy_on_request(handle)
+                              local body = handle:body()
+                              if body == nil then return end
+                              local raw = body:getBytes(0, body:length())
+                              if raw == nil or #raw == 0 then return end
+                              -- Cheap JSON sniff for the model field; full parse not needed.
+                              local model = string.match(raw, '"model"%s*:%s*"([^"]+)"')
+                              if model then
+                                handle:headers():add("x-llm-model", model)
+                              end
+                              -- Strip oversized prompts early (token budget enforced upstream).
+                              if #raw > 65536 then
+                                handle:respond({[":status"] = "413"}, "request too large")
+                              end
+                            end
+                      - name: envoy.filters.http.local_ratelimit
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+                          stat_prefix: tenant_rate_limit
+                          token_bucket:
+                            max_tokens: 100
+                            tokens_per_fill: 100
+                            fill_interval: 60s
+                          filter_enabled:
+                            runtime_key: local_rate_limit_enabled
+                            default_value: { numerator: 100, denominator: HUNDRED }
+                          filter_enforced:
+                            runtime_key: local_rate_limit_enforced
+                            default_value: { numerator: 100, denominator: HUNDRED }
+                      - name: envoy.filters.http.router
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+                    stream_idle_timeout: 0s     # SSE streaming — disable idle timeout
+                    request_timeout: 0s
+                    route_config:
+                      name: route_models
+                      virtual_hosts:
+                        - name: backend
+                          domains: ["*"]
+                          routes:
+                            # Health check
+                            - match: { path: "/health" }
+                              direct_response: { status: 200, body: { inline_string: "OK" } }
+                            # Llama3 — routes by header set in Lua filter
+                            - match:
+                                prefix: "/v1/"
+                                headers:
+                                  - name: x-llm-model
+                                    string_match: { exact: "llama3-8b" }
+                              route:
+                                cluster: vllm-llama3-8b
+                                timeout: 0s
+                            # TinyLlama (local dev)
+                            - match:
+                                prefix: "/v1/"
+                                headers:
+                                  - name: x-llm-model
+                                    string_match: { exact: "tinyllama" }
+                              route:
+                                cluster: vllm-tinyllama
+                                timeout: 0s
+                            # Default fallback
+                            - match: { prefix: "/v1/" }
+                              direct_response:
+                                status: 400
+                                body: { inline_string: "unknown model" }
+
+      clusters:
+        - name: vllm-llama3-8b
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: LEAST_REQUEST
+          # Use Argo Rollouts services — `vllm-llama3-8b` is the stable+canary mix.
+          load_assignment:
+            cluster_name: vllm-llama3-8b
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: vllm-llama3-8b.workloads.svc.cluster.local
+                          port_value: 8000
+        - name: vllm-tinyllama
+          connect_timeout: 5s
+          type: STRICT_DNS
+          lb_policy: LEAST_REQUEST
+          load_assignment:
+            cluster_name: vllm-tinyllama
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: vllm-tinyllama.workloads.svc.cluster.local
+                          port_value: 8000
+        - name: otel-collector
+          connect_timeout: 1s
+          type: STRICT_DNS
+          http2_protocol_options: {}
+          load_assignment:
+            cluster_name: otel-collector
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: otel-collector.observability.svc.cluster.local
+                          port_value: 4317

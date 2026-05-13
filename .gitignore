@@ -1,0 +1,56 @@
+### Terraform ###
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+.terraform.lock.hcl
+tfplan
+*.tfplan
+
+### Helm ###
+charts/
+*.tgz
+.helm/
+
+### Kubernetes ###
+kubeconfig*
+.kube/
+
+### Local dev ###
+.env
+.envrc
+.direnv/
+
+### IDEs ###
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+### Build outputs ###
+dist/
+build/
+bin/
+
+### Secrets / keys (never commit) ###
+*.pem
+*.key
+cosign.key
+!cosign.pub
+
+### CI artifacts ###
+sbom*.json
+trivy-*.sarif
+semgrep.sarif

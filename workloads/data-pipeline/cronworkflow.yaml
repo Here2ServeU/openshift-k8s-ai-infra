@@ -1,0 +1,20 @@
+---
+# Schedule the corpus-embedder nightly. Argo's CronWorkflow is the platform's
+# equivalent of a Kubernetes CronJob with full Workflow semantics.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: corpus-embedder-nightly
+  namespace: workloads
+spec:
+  schedule: "0 3 * * *"            # 03:00 UTC
+  concurrencyPolicy: Forbid        # never overlap
+  startingDeadlineSeconds: 600
+  workflowSpec:
+    workflowTemplateRef:
+      name: corpus-embedder
+    arguments:
+      parameters:
+        - { name: input-prefix,  value: "s3://corpora/raw/news/" }
+        - { name: output-prefix, value: "s3://corpora/embeddings/news/{{workflow.creationTimestamp.Y}}-{{workflow.creationTimestamp.m}}-{{workflow.creationTimestamp.d}}/" }
+        - { name: shards, value: "32" }

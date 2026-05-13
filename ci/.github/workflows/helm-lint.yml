@@ -1,0 +1,48 @@
+name: helm-lint
+
+on:
+  pull_request:
+    paths:
+      - "workloads/**"
+      - "platform/**"
+      - ".github/workflows/helm-lint.yml"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with: { version: 'v3.15.3' }
+
+      - uses: helm/chart-testing-action@v2.6.1
+
+      - name: ct lint
+        run: |
+          ct lint --target-branch main \
+            --chart-dirs workloads,platform \
+            --validate-maintainers=false \
+            --check-version-increment=false
+
+      - name: kubeconform — render + validate
+        run: |
+          curl -sLO https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform-linux-amd64.tar.gz
+          for chart in $(find workloads platform -name Chart.yaml -exec dirname {} \;); do
+            echo "→ $chart"
+            for vf in $chart/values*.yaml; do
+              helm template "$chart" -f "$vf" --skip-tests | ./kubeconform -strict -summary -ignore-missing-schemas
+            done
+          done
+
+      - name: polaris (best-practices)
+        uses: fairwindsops/polaris@master
+        with:
+          config-path: ci/polaris.yaml
+
+      - name: kubescape (NSA + MITRE controls)
+        uses: kubescape/github-action@main
+        with:
+          frameworks: 'nsa,mitre'
+          submit: false

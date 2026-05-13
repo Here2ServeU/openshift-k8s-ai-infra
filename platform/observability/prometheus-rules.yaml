@@ -1,0 +1,8 @@
+---
+# This points the cluster at the canonical alert/rule definitions stored under
+# `observability/alerts/`. PrometheusRule CRDs are picked up by the
+# kube-prometheus-stack operator via label selector.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Placeholder — actual rules are kustomized in via the `observability` app.

@@ -1,0 +1,42 @@
+name: argocd-sync-check
+
+# Renders every chart with every cloud values file to confirm a PR won't break
+# ArgoCD's sync. Cheap, fast, catches 80% of "merged and broke prod" issues.
+
+on:
+  pull_request:
+    paths:
+      - "workloads/**"
+      - "platform/**"
+      - ".github/workflows/argocd-sync-check.yml"
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        chart:
+          - workloads/llm-serving/helm
+        profile: [local, aws, gcp, azure]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with: { version: 'v3.15.3' }
+      - name: Install kubeconform
+        run: |
+          curl -sLO https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz
+          tar -xzf kubeconform-linux-amd64.tar.gz
+          sudo mv kubeconform /usr/local/bin/
+      - name: Render
+        run: |
+          helm template ${{ matrix.chart }} \
+            -f ${{ matrix.chart }}/values.yaml \
+            -f ${{ matrix.chart }}/values-${{ matrix.profile }}.yaml \
+            > /tmp/manifest.yaml
+      - name: Validate against Kubernetes schemas
+        run: |
+          kubeconform -strict -summary -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ "{{" }}.Group{{ "}}" }}/{{ "{{" }}.ResourceKind{{ "}}" }}_{{ "{{" }}.ResourceAPIVersion{{ "}}" }}.json' \
+            /tmp/manifest.yaml

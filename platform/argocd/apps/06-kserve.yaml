@@ -1,0 +1,30 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kserve
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://kserve.github.io/kserve
+    chart: kserve
+    targetRevision: 0.13.1
+    helm:
+      values: |
+        kserve:
+          controller:
+            deploymentMode: RawDeployment   # avoid Knative dep for simplicity
+            gateway:
+              ingressGateway:
+                className: nginx
+          modelMesh:
+            enabled: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: kserve
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

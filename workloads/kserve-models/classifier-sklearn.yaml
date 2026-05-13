@@ -1,0 +1,34 @@
+---
+# Sample traditional-ML inference service. Shows KServe handling a sklearn model
+# pulled from object storage with the same content-addressed pattern.
+#
+# storageUri uses one of:
+#   s3://<bucket>/models/<name>/<digest>/
+#   gs://<bucket>/models/<name>/<digest>/
+#   az://<container>@<account>/models/<name>/<digest>/
+#
+# The model-puller pattern from ADR-004 applies here too — KServe's storage
+# initializer pulls the artifact, validates the digest annotation, then the
+# predictor starts.
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: churn-classifier
+  namespace: workloads
+  labels:
+    app: churn-classifier
+    component: serving
+    model: churn-classifier
+  annotations:
+    serving.kserve.io/deploymentMode: RawDeployment
+    model.k8s.ai/digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 4
+    sklearn:
+      # Bootstrap script rewrites this URI to the right cloud at install-time.
+      storageUri: "s3://ai-ml-infra-models/models/churn-classifier/sha256-placeholder/"
+      resources:
+        requests: { cpu: "100m", memory: "256Mi" }
+        limits:   { cpu: "1",    memory: "1Gi" }

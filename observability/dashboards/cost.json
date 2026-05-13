@@ -1,0 +1,69 @@
+{
+  "title": "Cost — OpenCost + model economics",
+  "uid": "cost",
+  "tags": ["cost", "finops", "opencost"],
+  "schemaVersion": 39,
+  "refresh": "5m",
+  "time": { "from": "now-7d", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Cluster cost (last 7d)",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "sum(increase(node_total_hourly_cost[7d]))"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+    },
+    {
+      "type": "stat",
+      "title": "GPU cost (last 7d)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "sum(increase(node_total_hourly_cost{label_workload_type=\"serving\"}[7d]))"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD" } }
+    },
+    {
+      "type": "stat",
+      "title": "$ per 1M generation tokens",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "(sum(rate(node_total_hourly_cost{label_workload_type=\"serving\"}[1h])) * 3600) / clamp_min(sum(rate(vllm:generation_tokens_total[1h])) / 1e6, 1e-9)"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } }
+    },
+    {
+      "type": "stat",
+      "title": "Idle GPU $ (last 1h, est.)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "sum(node_total_hourly_cost{label_workload_type=\"serving\"} * on(node) (1 - clamp_max(avg_over_time(DCGM_FI_DEV_GPU_UTIL[1h]) / 100, 1)))"
+      }],
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "decimals": 2 } }
+    },
+    {
+      "type": "barchart",
+      "title": "Cost by namespace (7d)",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 10 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "topk(10, sum by (namespace) (increase(container_cpu_cost{}[7d]) + increase(container_memory_cost{}[7d])))"
+      }]
+    },
+    {
+      "type": "table",
+      "title": "Cost per model ($ / 1M tokens, last 24h)",
+      "gridPos": { "x": 12, "y": 4, "w": 12, "h": 10 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "(sum by (model) (rate(pod_cost_per_hour{label_app=~\"vllm-.*\"}[24h])) * 86400) / clamp_min(sum by (model) (rate(vllm:generation_tokens_total[24h]) * 86400 / 1e6), 1e-9)",
+        "format": "table"
+      }]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+---
+# Sloth-style SLO definition. Sloth (https://sloth.dev) generates the
+# PrometheusRule CRDs with recording + alert rules from this spec.
+#
+# Apply via:  sloth generate -i observability/slo/llm-availability.yaml \
+#               -o observability/alerts/llm-slo-burn.generated.yaml
+#
+# Or commit the generated output and let ArgoCD apply both. We keep the spec
+# here as the source of truth.
+version: "prometheus/v1"
+service: "llm-serving"
+labels:
+  team: "platform"
+slos:
+  - name: "llm-availability"
+    objective: 99.5    # 99.5% over the window
+    description: "% of LLM requests that don't return 5xx"
+    sli:
+      events:
+        error_query: |
+          sum(rate(vllm:request_failure_total[{{.window}}]))
+        total_query: |
+          sum(rate(vllm:request_success_total[{{.window}}])) +
+          sum(rate(vllm:request_failure_total[{{.window}}]))
+    alerting:
+      name: LLMAvailabilityErrorBudgetBurn
+      labels:
+        category: availability
+      annotations:
+        summary: "Error-budget burn rate on the LLM availability SLO"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "llm-ttft-p95"
+    objective: 95     # 95% of requests within 500ms TTFT
+    description: "TTFT p95 within 500ms"
+    sli:
+      events:
+        error_query: |
+          sum(rate(vllm:time_to_first_token_seconds_bucket{le="+Inf"}[{{.window}}])) -
+          sum(rate(vllm:time_to_first_token_seconds_bucket{le="0.5"}[{{.window}}]))
+        total_query: |
+          sum(rate(vllm:time_to_first_token_seconds_bucket{le="+Inf"}[{{.window}}]))
+    alerting:
+      name: LLMTTFTErrorBudgetBurn
+      labels:
+        category: latency
+      annotations:
+        summary: "TTFT SLO error-budget burning fast"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }

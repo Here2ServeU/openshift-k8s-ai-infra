@@ -1,0 +1,42 @@
+---
+# NVIDIA GPU Operator — installs the device plugin, DCGM exporter (GPU metrics
+# for Prometheus), MIG manager, and the runtime hooks.
+# On `kind` this is a no-op (no GPUs); the operator handles that gracefully.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: nvidia-gpu-operator
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "0" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://helm.ngc.nvidia.com/nvidia
+    chart: gpu-operator
+    targetRevision: v24.6.1
+    helm:
+      values: |
+        # Drivers are installed by the cloud (EKS uses AL2_x86_64_GPU AMI;
+        # GKE installs them via DaemonSet). So we disable the operator's driver.
+        driver:
+          enabled: false
+        # Enable DCGM exporter for Prometheus
+        dcgmExporter:
+          enabled: true
+          serviceMonitor:
+            enabled: true
+        # MIG strategy for partitioning bigger GPUs (A100/H100). L4 doesn't
+        # support MIG, so this is a no-op there.
+        mig:
+          strategy: single
+        nodeStatusExporter:
+          enabled: true
+        toolkit:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-operator
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

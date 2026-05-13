@@ -1,0 +1,88 @@
+---
+# KEDA ScaledObject for vLLM LLM serving. See ADR-003.
+#
+# Scaling signal: total backlog (pending + running) divided by replica count,
+# targeting ~4 requests per replica as the sweet spot for continuous batching.
+#
+# Cooldown is 5 min because GPU pods take ~60s to come up (model load).
+# Fallback to 3 replicas if Prometheus is unhealthy — enough for baseline.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-llama3-8b
+  namespace: workloads
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout                 # KEDA scales the Rollout, not the Deployment
+    name: vllm-llama3-8b
+  pollingInterval: 15             # seconds
+  cooldownPeriod: 300             # 5 min — GPU pods are slow to recycle
+  minReplicaCount: 1
+  maxReplicaCount: 12
+  fallback:
+    failureThreshold: 3
+    replicas: 3
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 30
+            - type: Pods
+              value: 4
+              periodSeconds: 30
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 300
+          policies:
+            - type: Percent
+              value: 50
+              periodSeconds: 60
+  triggers:
+    # Primary signal: queue depth + in-flight per replica.
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability.svc:9090
+        threshold: "4"
+        query: |
+          (
+            sum(vllm:num_requests_waiting{model="llama3-8b"}) +
+            sum(vllm:num_requests_running{model="llama3-8b"})
+          )
+    # Secondary safety net: KV cache utilization — if this is high we need more
+    # replicas regardless of queue depth (eviction risk).
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability.svc:9090
+        threshold: "80"
+        query: |
+          max(vllm:gpu_cache_usage_perc{model="llama3-8b"} * 100)
+---
+# Scale-to-zero variant for a dev/staging model. KEDA's pause-on-idle is what
+# saves ~$700/month per idle GPU in our non-prod environments.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: vllm-dev-tinyllama
+  namespace: workloads
+spec:
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: vllm-tinyllama
+  pollingInterval: 30
+  cooldownPeriod: 900         # 15 min idle before scale to zero
+  idleReplicaCount: 0
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability.svc:9090
+        threshold: "1"
+        query: |
+          sum(rate(vllm:request_success_total{model="tinyllama"}[5m]))

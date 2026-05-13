@@ -1,0 +1,144 @@
+name: model-release
+
+# Triggered manually or by an upstream "model trained" webhook.
+# Promotes a raw model upload → content-addressed, signed artifact → PR
+# bumping the values file. ArgoCD picks up the merged PR and Rollouts handles
+# the canary deploy (SLO-gated via eval).
+
+on:
+  workflow_dispatch:
+    inputs:
+      model-name:
+        description: "Model name (logical, e.g. llama3-8b)"
+        required: true
+      raw-uri:
+        description: "URI of the raw upload (s3://, gs://, az://)"
+        required: true
+      target-env:
+        description: "Promotion target"
+        required: true
+        type: choice
+        default: staging
+        options: [dev, staging, prod]
+      cloud:
+        description: "Target cloud"
+        required: true
+        type: choice
+        default: aws
+        options: [aws, gcp, azure]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: model-release-${{ inputs.model-name }}-${{ inputs.target-env }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.digest.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cloud auth (${{ inputs.cloud }})
+        uses: ./.github/actions/cloud-auth
+        with:
+          cloud: ${{ inputs.cloud }}
+          aws-role: ${{ secrets.AWS_MODEL_RELEASE_ROLE }}
+          gcp-provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          gcp-sa: ${{ secrets.GCP_MODEL_RELEASE_SA }}
+          azure-client-id: ${{ secrets.AZURE_MODEL_CLIENT_ID }}
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install rclone
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+
+      - name: Pull raw artifact
+        run: |
+          mkdir -p /tmp/raw
+          rclone copy "${{ inputs.raw-uri }}" /tmp/raw/ --progress
+
+      - name: Safety scan (pickle / malicious safetensors)
+        run: |
+          pip install safetensors-checker picklescan
+          picklescan -p /tmp/raw/
+          python -c "
+          from safetensors import safe_open
+          with safe_open('/tmp/raw/model.safetensors', framework='pt') as f:
+              keys = list(f.keys())
+              print(f'OK: {len(keys)} tensors')
+          "
+
+      - id: digest
+        name: Compute sha256
+        run: |
+          d="sha256:$(sha256sum /tmp/raw/model.safetensors | awk '{print $1}')"
+          echo "value=$d" >> $GITHUB_OUTPUT
+
+      - name: License check
+        run: |
+          test -f /tmp/raw/LICENSE || test -f /tmp/raw/LICENSE.txt || \
+            { echo 'no LICENSE file present — refusing to promote'; exit 1; }
+
+  promote:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cloud auth (${{ inputs.cloud }})
+        uses: ./.github/actions/cloud-auth
+        with:
+          cloud: ${{ inputs.cloud }}
+
+      - name: Install rclone + cosign
+        run: |
+          curl https://rclone.org/install.sh | sudo bash
+          go install github.com/sigstore/cosign/v2/cmd/cosign@latest
+
+      - name: Resolve model bucket URI
+        id: bucket
+        run: |
+          case "${{ inputs.cloud }}" in
+            aws)   echo "value=s3://ai-ml-infra-models" >> $GITHUB_OUTPUT ;;
+            gcp)   echo "value=gs://ai-ml-infra-models" >> $GITHUB_OUTPUT ;;
+            azure) echo "value=az://models@aimlmodels" >> $GITHUB_OUTPUT ;;
+          esac
+
+      - name: Promote (publish + sign + open PR)
+        env:
+          MODEL_BUCKET_URI: ${{ steps.bucket.outputs.value }}
+          COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+          OPEN_PR: "1"
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ./scripts/promote-model.sh \
+            --name "${{ inputs.model-name }}" \
+            --raw  "${{ inputs.raw-uri }}" \
+            --env  "${{ inputs.target-env }}-${{ inputs.cloud }}"
+
+  smoke-eval:
+    needs: promote
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kick lm-eval workflow on cluster
+        # Submitting against the canary endpoint of the soon-to-be-merged digest.
+        # The AnalysisTemplate on the Rollout will read this winrate when ArgoCD
+        # syncs the PR.
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG_B64 }}
+        run: |
+          echo "$KUBECONFIG_B64" | base64 -d > /tmp/kc
+          export KUBECONFIG=/tmp/kc
+          argo submit -n workloads --from workflowtemplate/llm-eval \
+            --parameter candidate-model="${{ inputs.model-name }}" \
+            --parameter candidate-endpoint="http://vllm-${{ inputs.model-name }}-canary.workloads:8000/v1" \
+            --parameter limit=200

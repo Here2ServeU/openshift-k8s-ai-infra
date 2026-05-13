@@ -1,0 +1,111 @@
+# Base values. Per-cloud overrides live in values-{local,aws,gcp}.yaml.
+
+# ----------------------------------------------------------------------------
+# Cloud contract — these come from Terraform outputs (see ADR-007). The
+# bootstrap script renders values-{cloud}.yaml from `terraform output`.
+# ----------------------------------------------------------------------------
+cloud:
+  provider: local           # local | aws | gcp
+  modelBucketUri: ""        # s3://... or gs://...
+  modelPullerSA: ""         # SA annotation value (IRSA ARN or WI SA email)
+
+# ----------------------------------------------------------------------------
+# Model — referenced by digest, never by tag. See ADR-004.
+# ----------------------------------------------------------------------------
+model:
+  name: llama3-8b
+  # The bump-model GitHub Action edits this line.
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  contextLength: 8192
+  dtype: "bfloat16"
+
+# ----------------------------------------------------------------------------
+# Runtime — vLLM by default. See ADR-001.
+# ----------------------------------------------------------------------------
+runtime:
+  image: vllm/vllm-openai:v0.7.0
+  args:
+    # OpenAI-compatible server, the model name advertised at the API, max
+    # concurrent sequences (tune per GPU memory + model).
+    - --model=/models/$(MODEL_NAME)
+    - --served-model-name=$(MODEL_NAME)
+    - --max-num-seqs=64
+    - --max-num-batched-tokens=8192
+    - --enable-chunked-prefill
+    - --gpu-memory-utilization=0.90
+    - --enable-prefix-caching
+  port: 8000
+
+# ----------------------------------------------------------------------------
+# Resources — overridden in cloud values where GPU is present.
+# ----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: "2"
+    memory: "8Gi"
+  limits:
+    cpu: "4"
+    memory: "16Gi"
+  # gpus: 1   — set in values-aws/gcp.yaml
+
+nodeSelector:
+  workload-type: serving
+
+tolerations: []
+# In cloud:
+#   - key: nvidia.com/gpu
+#     operator: Exists
+#     effect: NoSchedule
+
+# Topology spread — one replica per zone preferred.
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: vllm-llama3-8b
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ----------------------------------------------------------------------------
+# Rollout strategy — see ADR-006. Canary gated by AnalysisTemplate.
+# ----------------------------------------------------------------------------
+rollout:
+  replicas: 2
+  strategy:
+    canary:
+      steps:
+        - setWeight: 10
+        - pause: { duration: 5m }
+        - analysisRef: llm-canary-analysis
+        - setWeight: 50
+        - pause: { duration: 5m }
+        - analysisRef: llm-canary-analysis
+        - setWeight: 100
+      maxSurge: 1
+      maxUnavailable: 0
+
+# ----------------------------------------------------------------------------
+# Service + ingress
+# ----------------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false  # gateway in front
+
+# ----------------------------------------------------------------------------
+# Observability
+# ----------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  path: /metrics
+
+otel:
+  enabled: true
+  endpoint: "otel-collector.observability:4317"

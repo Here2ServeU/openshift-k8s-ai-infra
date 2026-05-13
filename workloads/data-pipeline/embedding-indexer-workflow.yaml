@@ -1,0 +1,103 @@
+---
+# High-throughput data pipeline — embed a corpus and index into a vector DB.
+# This is the typical "data prep for RAG" job that runs on a schedule.
+#
+# Pattern:
+#   1. fan-out: split the source corpus into shards (configurable)
+#   2. parallel embed: each shard runs in a pod that hits the in-cluster
+#      embedding service (KServe HF) in batches
+#   3. fan-in: union the per-shard outputs into a single index commit
+#
+# Scales horizontally by bumping `shards`. KEDA scales the embedding service
+# up to absorb the parallel load; Karpenter provisions GPU nodes if KEDA
+# pushes the embedding service onto GPU (we keep it on CPU here — small model).
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: corpus-embedder
+  namespace: workloads
+spec:
+  entrypoint: embed-corpus
+  arguments:
+    parameters:
+      - { name: input-prefix,  value: "s3://corpora/raw/news/" }
+      - { name: output-prefix, value: "s3://corpora/embeddings/news/" }
+      - { name: embedding-endpoint, value: "http://embeddings-predictor.workloads:8080/v1/models/embeddings:predict" }
+      - { name: shards, value: "16" }
+      - { name: batch-size, value: "64" }
+  templates:
+    - name: embed-corpus
+      dag:
+        tasks:
+          - name: enumerate
+            template: enumerate-shards
+            arguments:
+              parameters:
+                - { name: prefix, value: "{{workflow.parameters.input-prefix}}" }
+                - { name: shards, value: "{{workflow.parameters.shards}}" }
+          - name: embed
+            dependencies: [enumerate]
+            template: embed-shard
+            arguments:
+              parameters:
+                - { name: shard-uri, value: "{{item}}" }
+                - { name: output-prefix, value: "{{workflow.parameters.output-prefix}}" }
+                - { name: embedding-endpoint, value: "{{workflow.parameters.embedding-endpoint}}" }
+                - { name: batch-size, value: "{{workflow.parameters.batch-size}}" }
+            withParam: "{{tasks.enumerate.outputs.parameters.shard-uris}}"
+          - name: merge
+            dependencies: [embed]
+            template: merge-shards
+            arguments:
+              parameters:
+                - { name: output-prefix, value: "{{workflow.parameters.output-prefix}}" }
+
+    - name: enumerate-shards
+      inputs:
+        parameters: [{ name: prefix }, { name: shards }]
+      outputs:
+        parameters:
+          - name: shard-uris
+            valueFrom:
+              path: /tmp/shards.json
+      script:
+        image: amazon/aws-cli:2.17.50
+        command: [bash]
+        source: |
+          set -euo pipefail
+          aws s3 ls --recursive "{{inputs.parameters.prefix}}" \
+            | awk '{print "s3://"$NF}' \
+            | split -n l/{{inputs.parameters.shards}} - /tmp/shard-
+          ls /tmp/shard-* | jq -R -s -c 'split("\n")[:-1]' > /tmp/shards.json
+          cat /tmp/shards.json
+
+    - name: embed-shard
+      nodeSelector: { workload-type: batch }
+      inputs:
+        parameters:
+          - name: shard-uri
+          - name: output-prefix
+          - name: embedding-endpoint
+          - name: batch-size
+      container:
+        image: ghcr.io/your-org/corpus-embedder:0.3.0
+        env:
+          - { name: SHARD, value: "{{inputs.parameters.shard-uri}}" }
+          - { name: OUTPUT_PREFIX, value: "{{inputs.parameters.output-prefix}}" }
+          - { name: EMBEDDING_ENDPOINT, value: "{{inputs.parameters.embedding-endpoint}}" }
+          - { name: BATCH_SIZE, value: "{{inputs.parameters.batch-size}}" }
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "2",    memory: "4Gi" }
+
+    - name: merge-shards
+      inputs:
+        parameters: [{ name: output-prefix }]
+      container:
+        image: ghcr.io/your-org/corpus-embedder:0.3.0
+        command: [embedder-merge]
+        env:
+          - { name: OUTPUT_PREFIX, value: "{{inputs.parameters.output-prefix}}" }
+        resources:
+          requests: { cpu: "500m", memory: "1Gi" }
+          limits:   { cpu: "2",    memory: "4Gi" }

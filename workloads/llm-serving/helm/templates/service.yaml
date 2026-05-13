@@ -1,0 +1,41 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llm-serving.name" . }}
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector: {{- include "llm-serving.selectorLabels" . | nindent 4 }}
+---
+# Stable + canary services — required by Argo Rollouts canary strategy.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llm-serving.name" . }}-stable
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector: {{- include "llm-serving.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "llm-serving.name" . }}-canary
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector: {{- include "llm-serving.selectorLabels" . | nindent 4 }}

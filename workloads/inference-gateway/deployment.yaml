@@ -1,0 +1,64 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-gateway
+  namespace: workloads
+  labels:
+    app: inference-gateway
+    component: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: inference-gateway }
+  template:
+    metadata:
+      labels: { app: inference-gateway }
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9901"
+    spec:
+      containers:
+        - name: envoy
+          image: envoyproxy/envoy:v1.31.2
+          args: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info"]
+          ports:
+            - { name: http,  containerPort: 8080 }
+            - { name: admin, containerPort: 9901 }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/envoy
+          readinessProbe:
+            httpGet: { path: /ready, port: admin }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits:   { cpu: 1,    memory: 512Mi }
+      volumes:
+        - name: config
+          configMap:
+            name: inference-gateway-envoy
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-gateway
+  namespace: workloads
+  labels: { app: inference-gateway }
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+  selector:
+    app: inference-gateway
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: inference-gateway
+  namespace: workloads
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app: inference-gateway }

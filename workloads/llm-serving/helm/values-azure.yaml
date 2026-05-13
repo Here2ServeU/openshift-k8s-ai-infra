@@ -1,0 +1,53 @@
+# Azure profile — assumes Terraform applied (AKS + GPU spot pool + Blob storage + WI).
+cloud:
+  provider: azure
+  modelBucketUri: "az://models@aimlmodels"     # rclone-style: container@account
+  # Two fields for Azure Workload Identity — set by the bootstrap script from
+  # Terraform outputs: model_puller_client_id and model_puller_tenant_id.
+  modelPullerSA: ""                            # the client_id (GUID) of the managed identity
+  azureTenantId: ""                            # AAD tenant ID
+
+model:
+  name: llama3-8b
+  digest: "sha256:abcdef1234567890..."
+  contextLength: 8192
+  dtype: "bfloat16"
+
+runtime:
+  image: vllm/vllm-openai:v0.7.0
+  args:
+    - --model=/models/$(MODEL_NAME)
+    - --served-model-name=$(MODEL_NAME)
+    - --max-num-seqs=64
+    - --max-num-batched-tokens=8192
+    - --enable-chunked-prefill
+    - --enable-prefix-caching
+    - --gpu-memory-utilization=0.90
+    - --dtype=bfloat16
+
+resources:
+  requests:
+    cpu: "4"
+    memory: "16Gi"
+    nvidia.com/gpu: "1"
+  limits:
+    cpu: "8"
+    memory: "24Gi"
+    nvidia.com/gpu: "1"
+
+nodeSelector:
+  workload-type: serving
+  kubernetes.azure.com/scalesetpriority: spot
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+  # Spot pool taint — must be tolerated explicitly on Azure.
+  - key: kubernetes.azure.com/scalesetpriority
+    operator: Equal
+    value: spot
+    effect: NoSchedule
+
+rollout:
+  replicas: 2

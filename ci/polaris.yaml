@@ -1,0 +1,34 @@
+checks:
+  # Security
+  hostIPCSet: danger
+  hostNetworkSet: danger
+  hostPIDSet: danger
+  hostPortSet: warning
+  notReadOnlyRootFilesystem: warning      # vLLM writes /tmp; can't enforce
+  privilegeEscalationAllowed: danger
+  runAsRootAllowed: warning                # GPU operator needs root on host
+  runAsPrivileged: danger
+  dangerousCapabilities: danger
+  insecureCapabilities: warning
+
+  # Resources
+  cpuRequestsMissing: danger
+  cpuLimitsMissing: warning
+  memoryRequestsMissing: danger
+  memoryLimitsMissing: danger
+
+  # Reliability
+  livenessProbeMissing: warning
+  readinessProbeMissing: warning
+  tagNotSpecified: danger
+  pullPolicyNotAlways: ignore               # cache-friendly for big GPU images
+
+  # Networking
+  tlsSettingsMissing: ignore                # cert-manager handles separately
+
+exemptions:
+  - controllerNames:
+      - vllm-llama3-8b
+    rules:
+      # vLLM's GPU pod needs writable /dev/shm and /models tmpfs
+      - notReadOnlyRootFilesystem

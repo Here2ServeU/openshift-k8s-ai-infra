@@ -1,0 +1,90 @@
+---
+# Multi-burn-rate SLO alerts — Google SRE workbook pattern.
+# Fast burn (1h window, 14.4× burn) pages immediately; slow burn (6h, 6×)
+# wakes oncall during business hours. The 24h window is for warning-level
+# ticket alerts.
+#
+# Generated equivalent can be auto-produced by Sloth from
+# observability/slo/llm-availability.yaml — this file is the hand-written
+# version, kept around for review and customization.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: llm-slo-burn
+  namespace: observability
+  labels:
+    prometheus: kube-prometheus-stack-prometheus
+    role: alert-rules
+spec:
+  groups:
+    - name: llm-slo-recording
+      interval: 30s
+      rules:
+        - record: slo:llm_total_requests_total
+          expr: |
+            sum(rate(vllm:request_success_total[1m]))
+            + sum(rate(vllm:request_failure_total[1m]))
+        - record: slo:llm_failed_requests_total
+          expr: |
+            sum(rate(vllm:request_failure_total[1m]))
+        - record: slo:llm_error_ratio_1h
+          expr: |
+            sum(rate(vllm:request_failure_total[1h]))
+            /
+            (sum(rate(vllm:request_success_total[1h])) + sum(rate(vllm:request_failure_total[1h])))
+        - record: slo:llm_error_ratio_6h
+          expr: |
+            sum(rate(vllm:request_failure_total[6h]))
+            /
+            (sum(rate(vllm:request_success_total[6h])) + sum(rate(vllm:request_failure_total[6h])))
+
+    - name: llm-slo-alerts
+      rules:
+        - alert: LLMAvailabilityFastBurn
+          # 14.4× burn rate on 1h window — error budget exhausted in 2 days
+          # if sustained. Pages oncall.
+          expr: slo:llm_error_ratio_1h > (14.4 * 0.005)
+          for: 2m
+          labels:
+            severity: critical
+            slo: llm-availability
+            team: platform
+          annotations:
+            summary: "LLM error-budget burning at 14.4× (1h)"
+            description: "1h error ratio is {{ $value | humanizePercentage }}. At this rate the 30d budget is gone in 2 days."
+            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+
+        - alert: LLMAvailabilitySlowBurn
+          # 6× burn on 6h — error budget gone in 5 days. Wakes during business hours.
+          expr: slo:llm_error_ratio_6h > (6 * 0.005)
+          for: 15m
+          labels:
+            severity: warning
+            slo: llm-availability
+            team: platform
+          annotations:
+            summary: "LLM error-budget burning at 6× (6h)"
+            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+
+        - alert: LLMTTFTBreaching
+          expr: |
+            histogram_quantile(0.95, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket[5m]))) > 0.5
+          for: 10m
+          labels:
+            severity: warning
+            slo: llm-ttft
+            team: platform
+          annotations:
+            summary: "TTFT p95 above 500ms target"
+            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+
+        - alert: LLMKVCacheNearFull
+          # Leading indicator: KV cache > 90% means we're about to evict / queue.
+          expr: max(vllm:gpu_cache_usage_perc) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+            team: platform
+          annotations:
+            summary: "vLLM KV cache > 90% on at least one replica"
+            description: "Eviction or queueing is imminent. Consider scaling out or reducing max-num-seqs."

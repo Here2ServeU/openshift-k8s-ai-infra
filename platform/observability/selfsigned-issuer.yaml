@@ -1,0 +1,9 @@
+---
+# Self-signed ClusterIssuer for local kind clusters.
+# In cloud, swap this for a Let's Encrypt ClusterIssuer using DNS01 + ESO.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: selfsigned-issuer
+spec:
+  selfSigned: {}

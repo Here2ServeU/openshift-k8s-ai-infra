@@ -1,0 +1,44 @@
+# Local kind cluster — CPU-only TinyLlama for the demo. ~6GB RAM, 2 cores.
+cloud:
+  provider: local
+  modelBucketUri: "s3://models"   # MinIO endpoint, http://minio.observability:9000
+  modelPullerSA: ""
+
+model:
+  name: tinyllama
+  digest: "sha256:tinyllama-cpu-demo"   # special-cased — pulls from HF Hub locally
+  contextLength: 2048
+  dtype: "float16"
+
+runtime:
+  # CPU build of vLLM. Slower, but doesn't require GPU drivers.
+  image: vllm/vllm-openai:v0.7.0-cpu
+  args:
+    - --model=TinyLlama/TinyLlama-1.1B-Chat-v1.0
+    - --served-model-name=tinyllama
+    - --max-num-seqs=8
+    - --max-num-batched-tokens=2048
+    - --dtype=float16
+    - --device=cpu
+
+resources:
+  requests:
+    cpu: "2"
+    memory: "6Gi"
+  limits:
+    cpu: "4"
+    memory: "8Gi"
+
+# No GPU node selector / tolerations locally.
+nodeSelector:
+  workload-type: serving
+tolerations: []
+
+rollout:
+  replicas: 1
+  strategy:
+    canary:
+      steps:
+        - setWeight: 50
+        - pause: { duration: 30s }   # short for demo
+        - setWeight: 100

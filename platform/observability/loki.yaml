@@ -1,0 +1,74 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://grafana.github.io/helm-charts
+    chart: loki
+    targetRevision: 6.16.0
+    helm:
+      values: |
+        loki:
+          auth_enabled: false
+          commonConfig:
+            replication_factor: 1
+          schemaConfig:
+            configs:
+              - from: "2024-04-01"
+                store: tsdb
+                object_store: s3
+                schema: v13
+                index:
+                  prefix: loki_index_
+                  period: 24h
+          storage:
+            type: 's3'
+            bucketNames:
+              chunks: loki-chunks
+              ruler: loki-ruler
+              admin: loki-admin
+            # In cloud, swap to S3/GCS credentials via IRSA/WI.
+            # Local: MinIO sidecar provides S3 compat.
+            s3:
+              endpoint: minio.observability.svc:9000
+              accessKeyId: ${MINIO_ACCESS_KEY}
+              secretAccessKey: ${MINIO_SECRET_KEY}
+              s3ForcePathStyle: true
+              insecure: true
+        deploymentMode: SingleBinary
+        singleBinary:
+          replicas: 1
+          resources:
+            requests: { cpu: 100m, memory: 512Mi }
+            limits:   { cpu: 1,    memory: 1Gi }
+          persistence:
+            enabled: true
+            size: 20Gi
+        # Disable distributed components in single-binary mode
+        backend: { replicas: 0 }
+        read:    { replicas: 0 }
+        write:   { replicas: 0 }
+        ingester: { replicas: 0 }
+        querier:  { replicas: 0 }
+        queryFrontend: { replicas: 0 }
+        queryScheduler: { replicas: 0 }
+        distributor: { replicas: 0 }
+        compactor: { replicas: 0 }
+        indexGateway: { replicas: 0 }
+        bloomCompactor: { replicas: 0 }
+        bloomGateway: { replicas: 0 }
+        # Plug in MinIO for local dev
+        minio:
+          enabled: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

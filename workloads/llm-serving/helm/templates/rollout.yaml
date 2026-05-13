@@ -1,0 +1,128 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: {{ include "llm-serving.name" . }}
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+  annotations:
+    # The digest is captured here too so a `kubectl describe rollout` shows it.
+    model.k8s.ai/digest: {{ .Values.model.digest | quote }}
+    model.k8s.ai/name: {{ .Values.model.name | quote }}
+spec:
+  replicas: {{ .Values.rollout.replicas }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "llm-serving.selectorLabels" . | nindent 6 }}
+  strategy:
+    canary:
+      maxSurge: {{ .Values.rollout.strategy.canary.maxSurge | default 1 }}
+      maxUnavailable: {{ .Values.rollout.strategy.canary.maxUnavailable | default 0 }}
+      steps:
+        {{- range .Values.rollout.strategy.canary.steps }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+      analysis:
+        templates:
+          - templateName: llm-canary-analysis
+        args:
+          - name: model
+            value: {{ .Values.model.name | quote }}
+          - name: namespace
+            value: {{ .Release.Namespace | quote }}
+  template:
+    metadata:
+      labels: {{- include "llm-serving.labels" . | nindent 8 }}
+        rollouts-pod-template-hash: ""   # set by Argo Rollouts
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.runtime.port }}"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: {{ include "llm-serving.name" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # ------------------------------------------------------------------
+      # Init-container — pulls the model artifact by content-addressed digest.
+      # See ADR-004. Verifies sha256 before vLLM starts.
+      # ------------------------------------------------------------------
+      initContainers:
+        - name: model-puller
+          image: ghcr.io/your-org/model-puller:0.2.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MODEL_BUCKET_URI
+              value: {{ .Values.cloud.modelBucketUri | quote }}
+            - name: MODEL_NAME
+              value: {{ .Values.model.name | quote }}
+            - name: MODEL_DIGEST
+              value: {{ .Values.model.digest | quote }}
+            - name: CLOUD_PROVIDER
+              value: {{ .Values.cloud.provider | quote }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+          resources:
+            requests: { cpu: "500m", memory: "256Mi" }
+            limits:   { cpu: "2",    memory: "1Gi" }
+      containers:
+        - name: vllm
+          image: {{ .Values.runtime.image }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: MODEL_NAME
+              value: {{ .Values.model.name | quote }}
+            {{- if .Values.otel.enabled }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://{{ .Values.otel.endpoint }}"
+            - name: OTEL_SERVICE_NAME
+              value: "vllm-{{ .Values.model.name }}"
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "gen_ai.system=vllm,gen_ai.request.model={{ .Values.model.name }}"
+            {{- end }}
+          args:
+            {{- range .Values.runtime.args }}
+            - {{ . }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.runtime.port }}
+              protocol: TCP
+          # Startup probe gives the model time to load (~30-60s on GPU, longer on CPU).
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60     # 10 minutes
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+            failureThreshold: 3
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: models
+          emptyDir: { sizeLimit: 50Gi }
+        # vLLM uses shared memory between workers — bump default 64MB.
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi

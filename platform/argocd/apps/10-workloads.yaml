@@ -1,0 +1,26 @@
+---
+# Workloads — second app-of-apps, scoped to user workloads (vLLM, KServe, etc.)
+# Separating this from platform/ lets the platform team move at a different
+# cadence from the workload teams.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: workloads
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "2" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    targetRevision: main
+    path: workloads
+    directory:
+      recurse: true
+      include: '{**/application.yaml,**/Application.yaml}'
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

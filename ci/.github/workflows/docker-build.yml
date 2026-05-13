@@ -1,0 +1,90 @@
+name: docker-build
+
+on:
+  push:
+    branches: [main]
+    paths: ["workloads/inference-gateway/**", "workloads/model-registry/**"]
+  pull_request:
+    paths: ["workloads/inference-gateway/**", "workloads/model-registry/**"]
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - image: model-puller
+            context: workloads/model-registry
+          - image: corpus-embedder
+            context: workloads/data-pipeline/embedder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set image tag
+        id: tag
+        run: echo "tag=$(git describe --tags --always --dirty)" >> $GITHUB_OUTPUT
+
+      - name: Build + push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}:latest
+          provenance: true
+          sbom: true
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+      - name: trivy scan (image)
+        if: github.event_name == 'push'
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          image-ref: ghcr.io/${{ github.repository }}/${{ matrix.image }}:${{ steps.tag.outputs.tag }}
+          severity: CRITICAL,HIGH
+          exit-code: 1
+          format: sarif
+          output: trivy-${{ matrix.image }}.sarif
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: github.event_name == 'push' && always()
+        with:
+          sarif_file: trivy-${{ matrix.image }}.sarif
+
+      - name: Install cosign
+        if: github.event_name == 'push'
+        uses: sigstore/cosign-installer@v3.6.0
+
+      - name: Sign image (keyless / OIDC)
+        if: github.event_name == 'push'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}@${DIGEST}
+
+      - name: Attest SBOM
+        if: github.event_name == 'push'
+        uses: actions/attest-sbom@v1
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/${{ matrix.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ matrix.context }}/sbom.spdx.json
+          push-to-registry: true
+        continue-on-error: true

@@ -1,0 +1,135 @@
+---
+# WorkflowTemplate — invoked by the model-release pipeline whenever a new digest
+# lands in `values-<cloud>.yaml`. Runs `lm-eval-harness` against the candidate
+# model endpoint, computes win-rate vs. a baseline, and pushes the result to
+# Prometheus pushgateway so Argo Rollouts' AnalysisTemplate can read it.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: llm-eval
+  namespace: workloads
+spec:
+  entrypoint: eval
+  arguments:
+    parameters:
+      - name: candidate-model
+      - name: baseline-model
+        value: "gpt-4o-mini"   # the reference for win-rate comparisons
+      - name: candidate-endpoint
+        value: "http://vllm-llama3-8b-canary.workloads:8000/v1"
+      - name: tasks
+        value: "mmlu,hellaswag,arc_challenge,truthfulqa_mc2"
+      - name: limit
+        value: "200"           # request limit per task — full eval is much larger
+      - name: pushgateway
+        value: "http://prometheus-pushgateway.observability:9091"
+
+  templates:
+    - name: eval
+      dag:
+        tasks:
+          - name: lm-eval
+            template: run-lm-eval
+            arguments:
+              parameters:
+                - { name: model,   value: "{{workflow.parameters.candidate-model}}" }
+                - { name: endpoint, value: "{{workflow.parameters.candidate-endpoint}}" }
+                - { name: tasks,    value: "{{workflow.parameters.tasks}}" }
+                - { name: limit,    value: "{{workflow.parameters.limit}}" }
+          - name: winrate
+            dependencies: [lm-eval]
+            template: compute-winrate
+            arguments:
+              parameters:
+                - { name: candidate,  value: "{{workflow.parameters.candidate-model}}" }
+                - { name: baseline,   value: "{{workflow.parameters.baseline-model}}" }
+                - { name: eval-output, value: "{{tasks.lm-eval.outputs.parameters.summary}}" }
+          - name: publish
+            dependencies: [winrate]
+            template: push-metric
+            arguments:
+              parameters:
+                - { name: model,        value: "{{workflow.parameters.candidate-model}}" }
+                - { name: baseline,     value: "{{workflow.parameters.baseline-model}}" }
+                - { name: winrate,      value: "{{tasks.winrate.outputs.parameters.value}}" }
+                - { name: pushgateway,  value: "{{workflow.parameters.pushgateway}}" }
+
+    - name: run-lm-eval
+      nodeSelector:
+        workload-type: batch
+      inputs:
+        parameters:
+          - name: model
+          - name: endpoint
+          - name: tasks
+          - name: limit
+      outputs:
+        parameters:
+          - name: summary
+            valueFrom:
+              path: /tmp/eval-summary.json
+      container:
+        image: ghcr.io/eleutherai/lm-eval-harness:latest
+        command: [sh, -c]
+        args:
+          - |
+            set -euo pipefail
+            lm_eval \
+              --model openai-chat-completions \
+              --model_args "model={{inputs.parameters.model}},base_url={{inputs.parameters.endpoint}}/chat/completions" \
+              --tasks "{{inputs.parameters.tasks}}" \
+              --limit "{{inputs.parameters.limit}}" \
+              --output_path /tmp/eval \
+              --log_samples
+            jq '.results' /tmp/eval/results_*.json > /tmp/eval-summary.json
+            cat /tmp/eval-summary.json
+        resources:
+          requests: { cpu: "2",   memory: "4Gi" }
+          limits:   { cpu: "4",   memory: "8Gi" }
+
+    - name: compute-winrate
+      inputs:
+        parameters:
+          - name: candidate
+          - name: baseline
+          - name: eval-output
+      outputs:
+        parameters:
+          - name: value
+            valueFrom:
+              path: /tmp/winrate
+      script:
+        image: python:3.12-slim
+        command: [python]
+        source: |
+          import json, sys
+          # Stub — a real winrate would diff candidate vs. baseline across tasks
+          # via Elo or pairwise judge. Here we compute mean accuracy as a proxy
+          # so the AnalysisTemplate can read a numeric value.
+          eo = json.loads("""{{inputs.parameters.eval-output}}""")
+          accs = []
+          for task, m in eo.items():
+              v = m.get("acc,none") or m.get("acc_norm,none") or m.get("acc")
+              if v is not None:
+                  accs.append(v)
+          winrate = sum(accs) / max(len(accs), 1)
+          with open("/tmp/winrate", "w") as f:
+              f.write(f"{winrate:.4f}")
+          print(f"winrate={winrate:.4f}")
+
+    - name: push-metric
+      inputs:
+        parameters:
+          - name: model
+          - name: baseline
+          - name: winrate
+          - name: pushgateway
+      container:
+        image: curlimages/curl:8.10.1
+        command: [sh, -c]
+        args:
+          - |
+            cat <<EOF | curl -s --data-binary @- "{{inputs.parameters.pushgateway}}/metrics/job/llm-eval/model/{{inputs.parameters.model}}/baseline_model/{{inputs.parameters.baseline}}"
+            # TYPE model_eval_winrate gauge
+            model_eval_winrate {{inputs.parameters.winrate}}
+            EOF

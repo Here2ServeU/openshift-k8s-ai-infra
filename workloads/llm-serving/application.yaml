@@ -1,0 +1,25 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: llm-serving
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    targetRevision: main
+    path: workloads/llm-serving/helm
+    helm:
+      # Layer cloud-specific values on top of base. The profile is set by the
+      # bootstrap script (scripts/bootstrap-cloud.sh) per cluster.
+      valueFiles:
+        - values.yaml
+        - values-$ARGOCD_ENV_PROFILE.yaml      # set on the Application by bootstrap
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: workloads
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

@@ -1,0 +1,45 @@
+---
+# Grafana dashboards are dropped here as ConfigMaps with the
+# `grafana_dashboard: "1"` label — Grafana's sidecar auto-loads them.
+# The actual JSON lives in observability/dashboards/ to keep the manifest
+# small and reviewable in PRs.
+#
+# In real CI we use a small kustomize generator:
+#   configMapGenerator:
+#     - name: grafana-dashboard-llm-serving
+#       files:
+#         - observability/dashboards/llm-serving.json
+#       options:
+#         labels:
+#           grafana_dashboard: "1"
+#
+# Here we just declare the four ConfigMaps with envsubst-style placeholders
+# that CI fills with the JSON file contents.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+configMapGenerator:
+  - name: grafana-dashboard-llm-serving
+    files:
+      - dashboard.json=../../observability/dashboards/llm-serving.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-gpu-fleet
+    files:
+      - dashboard.json=../../observability/dashboards/gpu-fleet.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-slo
+    files:
+      - dashboard.json=../../observability/dashboards/slo.json
+    options:
+      labels:
+        grafana_dashboard: "1"
+  - name: grafana-dashboard-cost
+    files:
+      - dashboard.json=../../observability/dashboards/cost.json
+    options:
+      labels:
+        grafana_dashboard: "1"

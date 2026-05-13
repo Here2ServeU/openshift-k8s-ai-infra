@@ -1,0 +1,9 @@
+apiVersion: v2
+name: llm-serving
+description: vLLM-based LLM serving with Argo Rollouts canary, content-addressed model artifacts, and SLO-gated promotion.
+type: application
+version: 0.1.0
+appVersion: "0.7.0"
+keywords: [llm, vllm, serving, ai]
+maintainers:
+  - name: platform

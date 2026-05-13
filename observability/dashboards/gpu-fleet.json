@@ -1,0 +1,83 @@
+{
+  "title": "GPU Fleet",
+  "uid": "gpu-fleet",
+  "tags": ["gpu", "fleet", "dcgm"],
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "GPUs in cluster",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "count(DCGM_FI_DEV_GPU_UTIL)" }]
+    },
+    {
+      "type": "stat",
+      "title": "Fleet utilization (avg %)",
+      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "avg(DCGM_FI_DEV_GPU_UTIL)" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "max": 100 } }
+    },
+    {
+      "type": "stat",
+      "title": "Idle GPUs (>60s utilization 0%)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "count(avg_over_time(DCGM_FI_DEV_GPU_UTIL[1m]) == 0)" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green",  "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red",    "value": 3 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Avg temp (°C)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 4 },
+      "datasource": "Prometheus",
+      "targets": [{ "expr": "avg(DCGM_FI_DEV_GPU_TEMP)" }],
+      "fieldConfig": { "defaults": { "unit": "celsius" } }
+    },
+    {
+      "type": "table",
+      "title": "Per-node GPU detail",
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 10 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "avg by (Hostname, gpu, modelName) (DCGM_FI_DEV_GPU_UTIL)",
+        "format": "table",
+        "instant": true
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "ECC errors (uncorrected)",
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "sum by (Hostname, gpu) (increase(DCGM_FI_DEV_XID_ERRORS[1h]))",
+        "legendFormat": "{{Hostname}}/{{gpu}}"
+      }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Karpenter — GPU nodes over time",
+      "gridPos": { "x": 12, "y": 14, "w": 12, "h": 8 },
+      "datasource": "Prometheus",
+      "targets": [{
+        "expr": "sum by (nodepool) (karpenter_nodes_allocatable{resource_type=\"nvidia_com_gpu\"})",
+        "legendFormat": "{{nodepool}}"
+      }]
+    }
+  ]
+}

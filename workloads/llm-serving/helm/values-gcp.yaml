@@ -1,0 +1,45 @@
+# GCP profile — assumes Terraform applied (GKE + GPU NodePool + GCS + WI).
+cloud:
+  provider: gcp
+  modelBucketUri: "gs://ai-ml-infra-models"
+  modelPullerSA: "ai-ml-infra-model-puller@your-project.iam.gserviceaccount.com"
+
+model:
+  name: llama3-8b
+  digest: "sha256:abcdef1234567890..."
+  contextLength: 8192
+  dtype: "bfloat16"
+
+runtime:
+  image: vllm/vllm-openai:v0.7.0
+  args:
+    - --model=/models/$(MODEL_NAME)
+    - --served-model-name=$(MODEL_NAME)
+    - --max-num-seqs=64
+    - --max-num-batched-tokens=8192
+    - --enable-chunked-prefill
+    - --enable-prefix-caching
+    - --gpu-memory-utilization=0.90
+    - --dtype=bfloat16
+
+resources:
+  requests:
+    cpu: "4"
+    memory: "16Gi"
+    nvidia.com/gpu: "1"
+  limits:
+    cpu: "8"
+    memory: "24Gi"
+    nvidia.com/gpu: "1"
+
+nodeSelector:
+  workload-type: serving
+  cloud.google.com/gke-accelerator: nvidia-l4
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+rollout:
+  replicas: 2

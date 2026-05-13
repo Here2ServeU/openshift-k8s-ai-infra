@@ -1,0 +1,68 @@
+---
+# Canary AnalysisTemplate — referenced by the Rollout's canary.analysis block.
+# Runs Prometheus queries against the canary's metrics every 30s. If any
+# metric is out of spec, the Rollout is aborted and traffic returns to stable.
+#
+# This is the "SLO-gated model release" the README advertises.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: llm-canary-analysis
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+spec:
+  args:
+    - name: model
+    - name: namespace
+  metrics:
+    # 1. Error rate on canary must be < 1%.
+    - name: canary-error-rate
+      interval: 30s
+      count: 10
+      successCondition: result[0] < 0.01
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-operated.observability:9090
+          query: |
+            sum(rate(vllm:request_failure_total{model="{{`{{args.model}}`}}",rollouts_pod_template_hash="canary"}[2m]))
+            /
+            clamp_min(
+              sum(rate(vllm:request_success_total{model="{{`{{args.model}}`}}",rollouts_pod_template_hash="canary"}[2m])) +
+              sum(rate(vllm:request_failure_total{model="{{`{{args.model}}`}}",rollouts_pod_template_hash="canary"}[2m])),
+              1
+            )
+
+    # 2. TTFT p95 on canary must be within 20% of stable's TTFT p95.
+    - name: canary-ttft-vs-stable
+      interval: 30s
+      count: 10
+      successCondition: result[0] < 1.2
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus-operated.observability:9090
+          query: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model="{{`{{args.model}}`}}",rollouts_pod_template_hash="canary"}[2m]))
+            )
+            /
+            clamp_min(
+              histogram_quantile(0.95,
+                sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{model="{{`{{args.model}}`}}",rollouts_pod_template_hash!="canary"}[2m]))
+              ),
+              0.001
+            )
+
+    # 3. Eval workflow — winrate against the baseline model must exceed 0.5.
+    # The Argo Workflow pushes its result to a Prometheus pushgateway metric;
+    # we read it here. If the eval hasn't finished yet, result is empty → fails.
+    - name: canary-eval-winrate
+      interval: 60s
+      count: 5
+      successCondition: result[0] >= 0.5
+      failureLimit: 1
+      provider:
+        prometheus:
+          address: http://prometheus-operated.observability:9090
+          query: |
+            max(model_eval_winrate{model="{{`{{args.model}}`}}",baseline_model!=""})
