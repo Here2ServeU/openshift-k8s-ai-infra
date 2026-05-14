@@ -208,26 +208,26 @@ Be honest with yourself in interviews — call out what's stubbed vs. real:
 
 ---
 
-## Interview talking points
+## Onboarding
 
-This repo doubles as the working portfolio behind the Senior DevOps interview for the Everse platform team. The [`docs/interview/`](docs/interview/) folder is the talk track:
+New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is the working introduction to the Everse platform — what it is, how it's built, what's already been decided, and where the load-bearing pieces are.
 
-- [`everse-devops-playbook.md`](docs/interview/everse-devops-playbook.md) — 60-second pitch, top-3 responsibility mapping, likely questions with strong answers.
-- [`first-90-days.md`](docs/interview/first-90-days.md) — the 30/60/90 plan for the role.
-- [`senior-tradeoffs.md`](docs/interview/senior-tradeoffs.md) — ten architectural calls with reasoning and the conditions that would flip them.
-- [`behavioral-stories.md`](docs/interview/behavioral-stories.md) — STAR-format stories mapped to the seniority signals in the brief.
-- [`voice-agent-infra.md`](docs/interview/voice-agent-infra.md) — how the voice/text agent simulation layer sits on Kubernetes.
-- [`scaling-10x.md`](docs/interview/scaling-10x.md) — concrete plan for "10× eval throughput next quarter."
+- [`README.md`](docs/onboarding/README.md) — 60-second platform pitch, responsibility map, FAQ for new platform engineers.
+- [`first-90-days.md`](docs/onboarding/first-90-days.md) — what we expect you to focus on in your first 30/60/90 days.
+- [`architecture-decisions.md`](docs/onboarding/architecture-decisions.md) — ten architectural calls you're inheriting, with reasoning and the conditions that would flip them.
+- [`operating-principles.md`](docs/onboarding/operating-principles.md) — how we operate the platform day-to-day: ownership, judgment, cross-functional influence, on-call.
+- [`voice-agent-infra.md`](docs/onboarding/voice-agent-infra.md) — how the voice/text agent simulation layer sits on Kubernetes.
+- [`scaling-playbook.md`](docs/onboarding/scaling-playbook.md) — how we plan capacity changes (e.g. supporting 10× eval throughput).
 
-Things in this repo that map to common interview questions:
+### Where to look for specific topics
 
-- **"How would you run Everse on Kubernetes?"** → [`workloads/everse-platform/`](workloads/everse-platform/) + [`docs/interview/everse-devops-playbook.md`](docs/interview/everse-devops-playbook.md) + [ADR-008](docs/decisions/008-everse-service-group.md)
-- **"How would you own CI/CD from commit to production?"** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/everse-release.yml`](.github/workflows/everse-release.yml)
-- **"How would you autoscale GPU workloads?"** → [`platform/keda/scaledobject-vllm.yaml`](platform/keda/scaledobject-vllm.yaml) + ADR-003
-- **"How would you do a canary deploy of a model?"** → [`workloads/llm-serving/helm/templates/rollout.yaml`](workloads/llm-serving/helm/templates/rollout.yaml) (Argo Rollout with SLO-gated analysis template)
-- **"How do you observe LLM serving specifically?"** → [`observability/dashboards/llm-serving.json`](observability/dashboards/llm-serving.json) and ADR-005
-- **"How do you keep cloud costs in check on GPU fleets?"** → ADR-002 + [`docs/runbooks/cost-spike.md`](docs/runbooks/cost-spike.md)
-- **"Walk me through a model-release pipeline."** → [`.github/workflows/model-release.yml`](.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md)
-- **"What are the Everse SLOs?"** → [`observability/slo/everse-slo.yaml`](observability/slo/everse-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
-- **"How would you handle an Everse queue backlog incident?"** → [`docs/runbooks/everse-queue-backlog.md`](docs/runbooks/everse-queue-backlog.md)
-- **"Tell me about a time you pushed back on a research team."** → [`docs/interview/behavioral-stories.md`](docs/interview/behavioral-stories.md) (Story 3)
+- **Running Everse on Kubernetes** → [`workloads/everse-platform/`](workloads/everse-platform/) + [`docs/onboarding/README.md`](docs/onboarding/README.md) + [ADR-008](docs/decisions/008-everse-service-group.md)
+- **CI/CD from commit to production** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/everse-release.yml`](.github/workflows/everse-release.yml)
+- **Autoscaling GPU workloads** → [`platform/keda/scaledobject-vllm.yaml`](platform/keda/scaledobject-vllm.yaml) + ADR-003
+- **Canary model deploys** → [`workloads/llm-serving/helm/templates/rollout.yaml`](workloads/llm-serving/helm/templates/rollout.yaml) (Argo Rollout with SLO-gated analysis template)
+- **LLM-serving observability** → [`observability/dashboards/llm-serving.json`](observability/dashboards/llm-serving.json) and ADR-005
+- **Cloud cost on GPU fleets** → ADR-002 + [`docs/runbooks/cost-spike.md`](docs/runbooks/cost-spike.md)
+- **Model-release pipeline** → [`.github/workflows/model-release.yml`](.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md)
+- **Everse SLOs** → [`observability/slo/everse-slo.yaml`](observability/slo/everse-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
+- **Everse queue backlog incident** → [`docs/runbooks/everse-queue-backlog.md`](docs/runbooks/everse-queue-backlog.md)
+- **Pushing back on research asks** → [`docs/onboarding/operating-principles.md`](docs/onboarding/operating-principles.md) (Principle 3)

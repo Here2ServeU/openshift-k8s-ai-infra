@@ -26,7 +26,7 @@ All Everse services live in a single `everse` namespace as a single Argo CD appl
 
 Text workers are short-lived, scale aggressively on backlog, and are the default tier. Voice workers are longer-lived (the unit of work is a multi-minute call), scale on concurrent active calls, and tolerate slower scale-down. Both consume from the same logical queue family but are deployed and scaled independently.
 
-See [`docs/interview/voice-agent-infra.md`](../interview/voice-agent-infra.md) for the longer treatment of the voice tier.
+See [`docs/onboarding/voice-agent-infra.md`](../onboarding/voice-agent-infra.md) for the longer treatment of the voice tier.
 
 ### 3. Compound KEDA trigger for text workers: backlog **and** message age
 
@@ -86,7 +86,7 @@ Argo Rollouts canary is most valuable when the *signal* (error rate, latency) re
 ## Cross-references
 
 - [Service manifests](../../workloads/everse-platform/)
-- [Voice-tier infrastructure notes](../interview/voice-agent-infra.md)
-- [Senior tradeoffs](../interview/senior-tradeoffs.md)
+- [Voice-tier infrastructure notes](../onboarding/voice-agent-infra.md)
+- [Architecture decisions](../onboarding/architecture-decisions.md)
 - [Queue-backlog runbook](../runbooks/everse-queue-backlog.md)
 - [Everse SLO definitions](../../observability/slo/everse-slo.yaml)
