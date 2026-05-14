@@ -14,7 +14,7 @@ Oncall playbooks for the platform. Each one is structured the same way:
 | [gpu-node-not-ready.md](gpu-node-not-ready.md) | GPU node failures, XID errors, spot interruptions |
 | [cost-spike.md](cost-spike.md) | Unexpected cloud spend, idle GPUs, runaway scale |
 | [model-rollback.md](model-rollback.md) | Reverting a bad model digest, fast and slow paths |
-| [everse-queue-backlog.md](everse-queue-backlog.md) | SQS backlog, DLQ growth, stuck or saturated eval workers |
+| [t2s-queue-backlog.md](t2s-queue-backlog.md) | SQS backlog, DLQ growth, stuck or saturated eval workers |
 
 ## Conventions
 

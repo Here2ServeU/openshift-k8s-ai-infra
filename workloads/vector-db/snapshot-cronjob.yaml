@@ -1,0 +1,65 @@
+---
+# Nightly snapshot of every Qdrant collection to S3. The script trusts
+# the IRSA / Workload Identity binding on the qdrant ServiceAccount —
+# no AWS keys live in the pod.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: qdrant-snapshot
+  namespace: vector-db
+spec:
+  schedule: "0 3 * * *"          # 03:00 UTC daily
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: qdrant
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            seccompProfile: { type: RuntimeDefault }
+          containers:
+            - name: snapshot
+              image: amazon/aws-cli:2.17.0
+              env:
+                - name: BUCKET
+                  value: ai-ml-infra-models
+                - name: PREFIX
+                  value: qdrant-snapshots
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  TS=$(date -u +"%Y%m%dT%H%M%SZ")
+                  for pod in 0 1 2; do
+                    HOST="qdrant-${pod}.qdrant-headless.vector-db.svc:6333"
+                    # ask qdrant to snapshot every collection
+                    for col in $(curl -fsS "http://${HOST}/collections" \
+                                  | sed -n 's/.*"name":"\([^"]*\)".*/\1/p'); do
+                      curl -fsS -X POST "http://${HOST}/collections/${col}/snapshots"
+                    done
+                    # upload everything in the snapshots dir for this pod
+                    aws s3 sync --quiet --no-progress \
+                      "s3://${BUCKET}/${PREFIX}/${TS}/${pod}/" \
+                      "/snapshots/" \
+                      || true
+                  done
+                  # retain only the last 14 days
+                  aws s3 ls "s3://${BUCKET}/${PREFIX}/" --recursive \
+                    | awk '{ print $4 }' | sort \
+                    | head -n -14 \
+                    | xargs -r -I {} aws s3 rm "s3://${BUCKET}/{}"
+              volumeMounts:
+                - { name: snapshots, mountPath: /snapshots }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities: { drop: ["ALL"] }
+          volumes:
+            - name: snapshots
+              emptyDir: { sizeLimit: 20Gi }

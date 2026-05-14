@@ -54,7 +54,7 @@ spec:
       # ------------------------------------------------------------------
       initContainers:
         - name: model-puller
-          image: ghcr.io/your-org/model-puller:0.2.0
+          image: ghcr.io/T2S/model-puller:0.2.0
           imagePullPolicy: IfNotPresent
           env:
             - name: MODEL_BUCKET_URI

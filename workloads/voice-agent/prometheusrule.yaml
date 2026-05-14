@@ -1,0 +1,69 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: voice-agent-alerts
+  namespace: t2s-voice
+  labels:
+    app.kubernetes.io/part-of: t2s-platform
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: voice-agent.capacity
+      rules:
+        - alert: VoiceActiveCallsNearMax
+          expr: |
+            sum(voice_call_active_count{namespace="t2s-voice"})
+              / (max(kube_deployment_status_replicas_available{deployment="t2s-worker-voice"}) * 4)
+            > 0.85
+          for: 5m
+          labels:
+            severity: warning
+            service: t2s-worker-voice
+          annotations:
+            summary: "Voice tier > 85% of concurrent-call capacity"
+            description: |
+              Active voice calls are nearing per-pod capacity (4 calls/pod).
+              KEDA should be scaling, but headroom on voice is small — verify
+              the node pool is not blocked by quota or AZ capacity.
+            runbook_url: https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/t2s-queue-backlog.md
+    - name: voice-agent.quality
+      rules:
+        - alert: VoiceASRConfidenceDrop
+          expr: |
+            avg_over_time(voice_asr_confidence[1h])
+              < (avg_over_time(voice_asr_confidence[7d] offset 1h) * 0.9)
+          for: 30m
+          labels:
+            severity: warning
+            service: t2s-worker-voice
+          annotations:
+            summary: "ASR confidence dropped > 10% vs. weekly baseline"
+            description: |
+              Average ASR confidence has fallen ≥10% below the 7-day baseline.
+              Eval results from this window are suspect. Triage upstream audio
+              path before trusting agent regression signals.
+        - alert: VoiceArtifactUploadSlow
+          expr: histogram_quantile(0.99, sum(rate(voice_audio_artifact_upload_seconds_bucket[10m])) by (le)) > 30
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Voice artifact upload p99 > 30s"
+            description: |
+              Audio artifact uploads to S3 are slow. Run completion may be
+              misreported. Check network from voice node pool to S3.
+    - name: voice-agent.reliability
+      rules:
+        - alert: VoiceWorkerOOMSpike
+          expr: |
+            increase(kube_pod_container_status_terminated_reason{namespace="t2s-voice",reason="OOMKilled"}[15m]) > 2
+          for: 5m
+          labels:
+            severity: critical
+            service: t2s-worker-voice
+          annotations:
+            summary: "Multiple voice-worker OOMKills in 15m"
+            description: |
+              Voice workers are OOMKilling. Likely a codec-loop or per-call
+              memory regression. Check recent worker image bumps.

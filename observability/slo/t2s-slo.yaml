@@ -1,0 +1,116 @@
+---
+# Sloth-style SLO definitions for the T2S product surface.
+#
+# Apply via:  sloth generate -i observability/slo/t2s-slo.yaml \
+#               -o observability/alerts/t2s-slo-burn.generated.yaml
+#
+# SLO menu:
+#   1. t2s-api-availability  — API requests that don't return 5xx
+#   2. t2s-api-latency       — API p95 < 500ms
+#   3. t2s-queue-freshness   — % of eval messages picked up within 5min
+#   4. t2s-eval-success      — % of submitted runs completing without
+#                                 worker error (DLQ landings count as failures)
+#
+# Window for all SLOs is 30d rolling, configurable via Sloth.
+version: "prometheus/v1"
+service: "t2s-platform"
+labels:
+  team: "platform"
+  product: "t2s"
+slos:
+
+  - name: "t2s-api-availability"
+    objective: 99.9
+    description: "% of t2s-api requests returning non-5xx"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_requests_total{service_name="t2s-api",status=~"5.."}[{{.window}}]))
+        total_query: |
+          sum(rate(http_server_requests_total{service_name="t2s-api"}[{{.window}}]))
+    alerting:
+      name: T2SApiAvailabilityErrorBudgetBurn
+      labels:
+        category: availability
+        product: t2s
+      annotations:
+        summary: "t2s-api availability SLO error-budget burn"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/t2s-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "t2s-api-latency"
+    objective: 95
+    description: "95% of t2s-api requests complete in under 500ms"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_duration_seconds_bucket{service_name="t2s-api",le="+Inf"}[{{.window}}])) -
+          sum(rate(http_server_duration_seconds_bucket{service_name="t2s-api",le="0.5"}[{{.window}}]))
+        total_query: |
+          sum(rate(http_server_duration_seconds_bucket{service_name="t2s-api",le="+Inf"}[{{.window}}]))
+    alerting:
+      name: T2SApiLatencyErrorBudgetBurn
+      labels:
+        category: latency
+        product: t2s
+      annotations:
+        summary: "t2s-api p95 latency SLO error-budget burn"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/t2s-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "t2s-queue-freshness"
+    objective: 99
+    description: "% of SQS eval messages where oldest-message-age stayed below 5 minutes"
+    sli:
+      events:
+        # We treat each scrape interval as one "event"; bad events are intervals
+        # where the oldest message exceeded the 5-min freshness budget.
+        error_query: |
+          sum_over_time(
+            (max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="t2s-eval"}) > bool 300)[{{.window}}:30s]
+          )
+        total_query: |
+          count_over_time(
+            (max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="t2s-eval"}))[{{.window}}:30s]
+          )
+    alerting:
+      name: T2SQueueFreshnessErrorBudgetBurn
+      labels:
+        category: throughput
+        product: t2s
+      annotations:
+        summary: "Eval queue freshness SLO error-budget burn"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/t2s-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "t2s-eval-success"
+    objective: 99
+    description: "% of submitted eval runs completing without landing in the DLQ"
+    sli:
+      events:
+        error_query: |
+          sum(rate(t2s_eval_runs_failed_total[{{.window}}]))
+        total_query: |
+          sum(rate(t2s_eval_runs_completed_total[{{.window}}])) +
+          sum(rate(t2s_eval_runs_failed_total[{{.window}}]))
+    alerting:
+      name: T2SEvalSuccessErrorBudgetBurn
+      labels:
+        category: quality
+        product: t2s
+      annotations:
+        summary: "Eval run success rate SLO error-budget burn"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/t2s-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }

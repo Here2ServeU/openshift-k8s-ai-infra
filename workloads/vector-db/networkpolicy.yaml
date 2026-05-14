@@ -1,0 +1,70 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-default-deny
+  namespace: vector-db
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Allow queries from the inference gateway, eval platform, embedding service,
+# and the data-pipeline workflows that maintain the index.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-allowed-clients
+  namespace: vector-db
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inference
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: eval
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: argo-workflows
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: vector-db   # peer p2p
+      ports:
+        - { protocol: TCP, port: 6333 }
+        - { protocol: TCP, port: 6334 }
+        - { protocol: TCP, port: 6335 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-egress
+  namespace: vector-db
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: qdrant
+  policyTypes: [Egress]
+  egress:
+    # cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [{ protocol: UDP, port: 53 }]
+    # peer-to-peer between qdrant pods
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: vector-db }
+      ports:
+        - { protocol: TCP, port: 6335 }
+    # S3 for snapshots (block IMDS to prevent SSRF)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+      ports:
+        - { protocol: TCP, port: 443 }

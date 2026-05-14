@@ -80,7 +80,7 @@ spec:
           - name: embedding-endpoint
           - name: batch-size
       container:
-        image: ghcr.io/your-org/corpus-embedder:0.3.0
+        image: ghcr.io/T2S/corpus-embedder:0.3.0
         env:
           - { name: SHARD, value: "{{inputs.parameters.shard-uri}}" }
           - { name: OUTPUT_PREFIX, value: "{{inputs.parameters.output-prefix}}" }
@@ -94,7 +94,7 @@ spec:
       inputs:
         parameters: [{ name: output-prefix }]
       container:
-        image: ghcr.io/your-org/corpus-embedder:0.3.0
+        image: ghcr.io/T2S/corpus-embedder:0.3.0
         command: [embedder-merge]
         env:
           - { name: OUTPUT_PREFIX, value: "{{inputs.parameters.output-prefix}}" }

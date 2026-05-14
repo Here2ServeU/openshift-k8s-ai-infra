@@ -1,12 +1,8 @@
 ---
-# Root App-of-Apps — applied once via `kubectl apply -f` after ArgoCD is up.
-# ArgoCD takes over from here: this app points to platform/argocd/apps/, which
-# contains one Application per platform component. Adding a component is a
-# matter of dropping a new YAML in that directory.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: app-of-apps
+  name: voice-agent
   namespace: argocd
   finalizers:
     - resources-finalizer.argocd.argoproj.io
@@ -15,12 +11,12 @@ spec:
   source:
     repoURL: https://github.com/T2S/k8s-ai-ml-infra
     targetRevision: main
-    path: platform/argocd/apps
+    path: workloads/voice-agent
     directory:
-      recurse: true
+      exclude: "application.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: argocd
+    namespace: t2s-voice
   syncPolicy:
     automated:
       prune: true

@@ -22,7 +22,7 @@ spec:
           annotations:
             summary: "GPU XID error on {{ $labels.Hostname }} (gpu {{ $labels.gpu }})"
             description: "XID errors indicate hardware/driver faults. Cordon the node and replace."
-            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/gpu-node-not-ready.md"
+            runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/gpu-node-not-ready.md"
 
         - alert: GPUMemoryUsageHigh
           expr: DCGM_FI_DEV_FB_USED / DCGM_FI_DEV_FB_TOTAL > 0.95
@@ -45,7 +45,7 @@ spec:
           annotations:
             summary: "Idle GPU on {{ $labels.Hostname }} for 30m"
             description: "Karpenter should consolidate this — check the NodePool consolidation policy."
-            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/cost-spike.md"
+            runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/cost-spike.md"
 
         - alert: GPUTemperatureHigh
           expr: DCGM_FI_DEV_GPU_TEMP > 85

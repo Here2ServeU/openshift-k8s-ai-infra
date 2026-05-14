@@ -1,4 +1,4 @@
-# First 30 / 60 / 90 days on the Everse platform team
+# First 30 / 60 / 90 days on the T2S platform team
 
 Welcome. This doc is what we expect you to focus on as you ramp. It's not a checklist — it's the shape of how the team learns to own this platform. Adapt it to what's actually on fire when you arrive.
 
@@ -13,7 +13,7 @@ The principles behind it:
 
 ## Days 0–30: Understand the system in production-realistic detail
 
-Goal: by end of month one, you can on-call for Everse without a buddy.
+Goal: by end of month one, you can on-call for T2S without a buddy.
 
 ### Discovery
 
@@ -26,7 +26,7 @@ Goal: by end of month one, you can on-call for Everse without a buddy.
 ### Quick wins (low-risk, high-signal)
 
 - Fix or delete every alert that's fired in the last 30 days without anyone taking action. Pager fatigue is an outage we haven't had yet.
-- Add SLO-burn alerts for `everse-api` if any are missing from [`observability/slo/everse-slo.yaml`](../../observability/slo/everse-slo.yaml).
+- Add SLO-burn alerts for `t2s-api` if any are missing from [`observability/slo/t2s-slo.yaml`](../../observability/slo/t2s-slo.yaml).
 - Write one runbook per existing pageable alert. If you can't write the runbook, the alert is wrong — bring it to the team.
 - Stand up a `cost-per-eval-run` panel on the existing Grafana cost dashboard. Even if the math is approximate, having the number visible changes conversations.
 
@@ -44,9 +44,9 @@ Goal: by end of month two, the team can ship 2× more eval throughput without yo
 
 ### Reliability
 
-- Verify rollback paths for `everse-api`, `everse-worker`, `everse-ui`, and the model serving stack. For each, time how long rollback actually takes. Anything over 5 minutes gets work to make it faster.
+- Verify rollback paths for `t2s-api`, `t2s-worker`, `t2s-ui`, and the model serving stack. For each, time how long rollback actually takes. Anything over 5 minutes gets work to make it faster.
 - Audit Argo Rollouts `AnalysisTemplate`s. Are the canary gates checking what they should — error rate, latency, business metrics? Or are they passing on noise?
-- Confirm DLQ depth and worker crash-loop alerts page, and that they have runbooks. See [Everse alerts](../../observability/alerts/everse-platform.yaml).
+- Confirm DLQ depth and worker crash-loop alerts page, and that they have runbooks. See [T2S alerts](../../observability/alerts/t2s-platform.yaml).
 - Run at least one game-day-quality test: drain a node, kill a worker mid-job, push a bad config, and observe whether the platform behaves as designed.
 
 ### Scaling and cost
@@ -84,8 +84,8 @@ Goal: by end of month three, the AI team can answer "yes, we can run 10× the ev
 ### Developer experience
 
 - One-command local environment that lets a new researcher run an eval suite end-to-end on `kind`. Reduces onboarding time and exercises the deploy path.
-- Ephemeral preview environments per pull request for `everse-ui` and `everse-api`. Argo CD `ApplicationSet` + GitHub PR events is the simplest path.
-- A consolidated `everse-status` command (CLI or Slack bot) that summarizes queue depth, recent deploys, error budget burn, and on-call. Reduces "is everything okay?" pings.
+- Ephemeral preview environments per pull request for `t2s-ui` and `t2s-api`. Argo CD `ApplicationSet` + GitHub PR events is the simplest path.
+- A consolidated `t2s-status` command (CLI or Slack bot) that summarizes queue depth, recent deploys, error budget burn, and on-call. Reduces "is everything okay?" pings.
 
 ### Strategic positioning
 

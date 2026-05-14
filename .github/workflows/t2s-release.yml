@@ -1,5 +1,5 @@
 ---
-name: everse-release
+name: t2s-release
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
         description: Service to release
         required: true
         type: choice
-        options: [everse-api, everse-worker, everse-ui]
+        options: [t2s-api, t2s-worker, t2s-ui]
       image_tag:
         description: Immutable image tag or digest
         required: true
@@ -33,16 +33,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: sigstore/cosign-installer@v3
       - name: Verify image signature
-        run: cosign verify ghcr.io/your-org/${{ inputs.service }}:${{ inputs.image_tag }}
+        run: cosign verify ghcr.io/T2S/${{ inputs.service }}:${{ inputs.image_tag }}
       - name: Patch manifest image
         uses: mikefarah/yq@v4.44.3
         with:
           cmd: |
             yq -i '
               (.. | select(tag == "!!map" and has("image") and
-              (.image | test("^ghcr.io/your-org/${{ inputs.service }}:"))) | .image) =
-              "ghcr.io/your-org/${{ inputs.service }}:${{ inputs.image_tag }}"
-            ' workloads/everse-platform/*.yaml
+              (.image | test("^ghcr.io/T2S/${{ inputs.service }}:"))) | .image) =
+              "ghcr.io/T2S/${{ inputs.service }}:${{ inputs.image_tag }}"
+            ' workloads/t2s-platform/*.yaml
       - name: Open promotion PR
         uses: peter-evans/create-pull-request@v7
         with:

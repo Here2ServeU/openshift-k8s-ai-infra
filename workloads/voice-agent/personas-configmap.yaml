@@ -1,0 +1,81 @@
+---
+# Persona definitions. Content-addressed: a run's identity is
+# (persona_sha, agent_digest, suite_version). Edits create a new sha;
+# we never patch a persona in place.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: t2s-personas
+  namespace: t2s-voice
+  labels:
+    app.kubernetes.io/part-of: t2s-platform
+data:
+  neutral-clean.yaml: |
+    id: neutral-clean
+    description: Baseline calm persona on a clean network. Use as control.
+    tone: neutral
+    speech_speed_wpm:
+      mean: 150
+      stddev: 10
+    interruption_probability: 0.02
+    call_quality:
+      profile: clean
+      jitter_ms: 5
+      packet_loss_pct: 0.0
+      dropout_seconds_per_minute: 0.0
+    judge_prompt_template: |
+      You are a calm, neutral customer calling about {{scenario}}.
+      Respond at a normal conversational pace. Do not interrupt the agent.
+
+  frustrated-mobile.yaml: |
+    id: frustrated-mobile
+    description: Frustrated caller on a mobile network with realistic jitter.
+    tone: frustrated
+    speech_speed_wpm:
+      mean: 175
+      stddev: 20
+    interruption_probability: 0.15
+    call_quality:
+      profile: mobile
+      jitter_ms: 40
+      packet_loss_pct: 1.2
+      dropout_seconds_per_minute: 0.5
+    judge_prompt_template: |
+      You are a frustrated customer calling about {{scenario}}.
+      You have already tried to resolve this once. Interrupt the agent if it
+      gives you a scripted answer. Speak slightly faster than normal.
+
+  cheerful-degraded.yaml: |
+    id: cheerful-degraded
+    description: Cheerful caller on a poor connection. Stresses ASR robustness.
+    tone: cheerful
+    speech_speed_wpm:
+      mean: 160
+      stddev: 15
+    interruption_probability: 0.05
+    call_quality:
+      profile: degraded
+      jitter_ms: 80
+      packet_loss_pct: 3.5
+      dropout_seconds_per_minute: 1.2
+    judge_prompt_template: |
+      You are a cheerful, patient customer. Speak warmly. Audio quality is
+      poor — repeat yourself if the agent asks. Track whether the agent
+      handles the degraded audio gracefully.
+
+  terse-clean.yaml: |
+    id: terse-clean
+    description: Terse caller, clean audio. Tests agents that over-talk.
+    tone: terse
+    speech_speed_wpm:
+      mean: 140
+      stddev: 8
+    interruption_probability: 0.10
+    call_quality:
+      profile: clean
+      jitter_ms: 5
+      packet_loss_pct: 0.0
+      dropout_seconds_per_minute: 0.0
+    judge_prompt_template: |
+      You are a busy customer. Use short sentences. If the agent monologues
+      for more than 15 seconds, interrupt with a clarifying question.

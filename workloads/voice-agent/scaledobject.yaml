@@ -1,0 +1,57 @@
+---
+# Voice workers scale on active-call concurrency, not SQS backlog.
+# Once a call is claimed the pod is committed for the call's duration, so
+# queue length is a misleading signal — only `voice_call_active_count` is.
+# We keep an SQS trigger as a safety floor for surge cold-starts.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: t2s-worker-voice
+  namespace: t2s-voice
+spec:
+  scaleTargetRef:
+    name: t2s-worker-voice
+  pollingInterval: 15
+  cooldownPeriod: 600          # long — killing a node with active calls is expensive
+  minReplicaCount: 2
+  maxReplicaCount: 80
+  fallback:
+    failureThreshold: 3
+    replicas: 10
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0
+          policies:
+            - type: Percent
+              value: 100
+              periodSeconds: 60
+            - type: Pods
+              value: 8
+              periodSeconds: 60
+          selectPolicy: Max
+        scaleDown:
+          stabilizationWindowSeconds: 900  # 15 min — let calls finish
+          policies:
+            - type: Percent
+              value: 10
+              periodSeconds: 300
+  triggers:
+    # Primary: active concurrent calls, target ~3 per pod so we have headroom
+    # for the 4th call slot before scaling.
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability.svc:9090
+        threshold: "3"
+        query: |
+          sum(voice_call_active_count{namespace="t2s-voice"})
+          / max(kube_deployment_status_replicas_available{deployment="t2s-worker-voice"})
+    # Safety floor: if the queue has a sudden surge of unclaimed voice jobs,
+    # spin pods proactively so we don't pay setup-latency on every call.
+    - type: aws-sqs-queue
+      metadata:
+        queueURLFromEnv: EVAL_QUEUE_URL
+        queueLength: "20"
+        awsRegion: us-east-1
+        identityOwner: operator

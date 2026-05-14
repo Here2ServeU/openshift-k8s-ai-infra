@@ -2,18 +2,18 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Rollout
 metadata:
-  name: everse-api
-  namespace: everse
+  name: t2s-api
+  namespace: t2s
   labels:
-    app.kubernetes.io/name: everse-api
+    app.kubernetes.io/name: t2s-api
     app.kubernetes.io/component: api
-    app.kubernetes.io/part-of: everse-platform
+    app.kubernetes.io/part-of: t2s-platform
 spec:
   replicas: 3
   revisionHistoryLimit: 5
   selector:
     matchLabels:
-      app.kubernetes.io/name: everse-api
+      app.kubernetes.io/name: t2s-api
   strategy:
     canary:
       maxSurge: 1
@@ -27,26 +27,26 @@ spec:
             duration: 10m
       analysis:
         templates:
-          - templateName: everse-api-canary
+          - templateName: t2s-api-canary
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: everse-api
+        app.kubernetes.io/name: t2s-api
         app.kubernetes.io/component: api
-        app.kubernetes.io/part-of: everse-platform
+        app.kubernetes.io/part-of: t2s-platform
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /metrics
         prometheus.io/port: "8080"
     spec:
-      serviceAccountName: everse-api
+      serviceAccountName: t2s-api
       securityContext:
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: api
-          image: ghcr.io/your-org/everse-api:0.1.0
+          image: ghcr.io/T2S/t2s-api:0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -55,26 +55,26 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector.observability:4317
             - name: OTEL_SERVICE_NAME
-              value: everse-api
+              value: t2s-api
             - name: EVAL_QUEUE_URL
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: eval-queue-url
             - name: ARTIFACT_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: artifact-bucket
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: database-url
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: redis-url
           readinessProbe:
             httpGet:
@@ -101,13 +101,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: everse-api
-  namespace: everse
+  name: t2s-api
+  namespace: t2s
   labels:
-    app.kubernetes.io/name: everse-api
+    app.kubernetes.io/name: t2s-api
 spec:
   selector:
-    app.kubernetes.io/name: everse-api
+    app.kubernetes.io/name: t2s-api
   ports:
     - name: http
       port: 80
@@ -116,13 +116,13 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: everse-api
-  namespace: everse
+  name: t2s-api
+  namespace: t2s
 spec:
   scaleTargetRef:
     apiVersion: argoproj.io/v1alpha1
     kind: Rollout
-    name: everse-api
+    name: t2s-api
   minReplicas: 3
   maxReplicas: 20
   metrics:
@@ -136,10 +136,10 @@ spec:
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: everse-api
-  namespace: everse
+  name: t2s-api
+  namespace: t2s
 spec:
   minAvailable: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: everse-api
+      app.kubernetes.io/name: t2s-api

@@ -17,8 +17,12 @@ The same manifests deploy locally on `kind` (for development and demos), on AWS 
 | **Observability** | OpenTelemetry Collector → Prometheus + Loki + Tempo → Grafana. LLM-specific dashboards (TTFT, TPOT, tokens/sec, KV-cache util, queue depth) |
 | **Scaling & reliability** | KEDA on queue depth + GPU util; Karpenter (AWS) / GKE node auto-provisioning for spot GPU bursts; PDBs + topology spread; multi-burn-rate SLO alerts |
 | **Cost optimization** | Spot GPU node pools, scale-to-zero for off-hours dev models, request-coalescing at gateway, FinOps tags on every resource, OpenCost dashboards |
-| **End-to-end LLM workflows** | vLLM serving, KServe for traditional ML, model registry (S3/GCS, content-addressed), Argo Workflows for eval (`lm-eval-harness`), inference gateway with routing/guardrails |
-| **Everse-style platform ops** | React/Node UI + Python API + queue-backed evaluation workers, SQS/KEDA scaling, Postgres/Redis/S3 dependencies, service-group promotion |
+| **End-to-end LLM workflows** | vLLM serving, KServe for traditional ML, model registry (S3/GCS, content-addressed), MLflow tracking + lineage, Argo Workflows for eval (`lm-eval-harness`), inference gateway with routing/guardrails |
+| **T2S-style platform ops** | React/Node UI + Python API + queue-backed evaluation workers, SQS/KEDA scaling, Postgres/Redis/S3 dependencies, service-group promotion |
+| **Voice/text agent simulation** | Separate `t2s-worker-voice` tier with persona configmaps (tone, speech speed, call quality), KEDA on active-call concurrency, drain-on-rollout |
+| **Retrieval + guardrails** | In-cluster Qdrant vector DB for embedding-backed eval suites and similarity-based prompt-injection canaries at the gateway |
+| **Security posture** | OWASP Top 10 (web + K8s) mapped to controls in-repo; Trivy + gitleaks + Semgrep wired into CI; IRSA / Workload Identity instead of static cloud keys |
+| **Python automation** | Operational scripts for SQS audit, cost reporting, model-artifact validation, GPU-utilization reporting, and SLO burn checks |
 
 ---
 
@@ -141,13 +145,16 @@ make platform-up
 │   ├── nvidia-gpu-operator/        # device plugin, MIG, DCGM exporter
 │   ├── argo-workflows/             # for eval + data jobs
 │   ├── argo-rollouts/              # progressive delivery
+│   ├── mlflow/                     # MLflow tracking server + lineage
 │   └── kserve/
 ├── workloads/
 │   ├── llm-serving/                # vLLM Helm chart + Rollout
 │   ├── kserve-models/              # traditional ML inference services
 │   ├── inference-gateway/          # Envoy-based routing + guardrails
 │   ├── eval-platform/              # lm-eval-harness as Argo Workflow
-│   ├── everse-platform/            # UI/API/worker service group for AI-agent evals
+│   ├── t2s-platform/               # React/Node UI + Python API + queue worker (T2S service group)
+│   ├── voice-agent/                # Voice worker tier — personas, KEDA on active calls
+│   ├── vector-db/                  # Qdrant cluster for embedding retrieval + guardrails
 │   ├── data-pipeline/              # high-throughput Ray/Argo ETL example
 │   └── model-registry/             # S3/GCS-backed registry + signing
 ├── observability/
@@ -155,7 +162,9 @@ make platform-up
 │   ├── alerts/                     # PrometheusRule CRDs (multi-burn-rate)
 │   └── slo/                        # Sloth SLO definitions
 ├── ci/                             # policy configuration used by GitHub Actions
-└── scripts/                        # demo.sh, load-test.sh, cost-report.sh
+└── scripts/
+    ├── demo.sh, load-test.sh, promote-model.sh
+    └── python/                     # SQS audit, cost report, artifact validate, GPU util, SLO burn
 ```
 
 ---
@@ -210,7 +219,7 @@ Be honest with yourself in interviews — call out what's stubbed vs. real:
 
 ## Onboarding
 
-New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is the working introduction to the Everse platform — what it is, how it's built, what's already been decided, and where the load-bearing pieces are.
+New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is the working introduction to the T2S platform — what it is, how it's built, what's already been decided, and where the load-bearing pieces are.
 
 - [`README.md`](docs/onboarding/README.md) — 60-second platform pitch, responsibility map, FAQ for new platform engineers.
 - [`first-90-days.md`](docs/onboarding/first-90-days.md) — what we expect you to focus on in your first 30/60/90 days.
@@ -221,13 +230,19 @@ New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is 
 
 ### Where to look for specific topics
 
-- **Running Everse on Kubernetes** → [`workloads/everse-platform/`](workloads/everse-platform/) + [`docs/onboarding/README.md`](docs/onboarding/README.md) + [ADR-008](docs/decisions/008-everse-service-group.md)
-- **CI/CD from commit to production** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/everse-release.yml`](.github/workflows/everse-release.yml)
+- **Running T2S on Kubernetes** → [`workloads/t2s-platform/`](workloads/t2s-platform/) + [`docs/onboarding/README.md`](docs/onboarding/README.md) + [ADR-008](docs/decisions/008-t2s-service-group.md)
+- **Voice/text agent simulation** → [`workloads/voice-agent/`](workloads/voice-agent/) + [`docs/onboarding/voice-agent-infra.md`](docs/onboarding/voice-agent-infra.md)
+- **CI/CD from commit to production** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/t2s-release.yml`](.github/workflows/t2s-release.yml)
 - **Autoscaling GPU workloads** → [`platform/keda/scaledobject-vllm.yaml`](platform/keda/scaledobject-vllm.yaml) + ADR-003
 - **Canary model deploys** → [`workloads/llm-serving/helm/templates/rollout.yaml`](workloads/llm-serving/helm/templates/rollout.yaml) (Argo Rollout with SLO-gated analysis template)
 - **LLM-serving observability** → [`observability/dashboards/llm-serving.json`](observability/dashboards/llm-serving.json) and ADR-005
-- **Cloud cost on GPU fleets** → ADR-002 + [`docs/runbooks/cost-spike.md`](docs/runbooks/cost-spike.md)
-- **Model-release pipeline** → [`.github/workflows/model-release.yml`](.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md)
-- **Everse SLOs** → [`observability/slo/everse-slo.yaml`](observability/slo/everse-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
-- **Everse queue backlog incident** → [`docs/runbooks/everse-queue-backlog.md`](docs/runbooks/everse-queue-backlog.md)
+- **Cloud cost on GPU fleets** → ADR-002 + [`docs/runbooks/cost-spike.md`](docs/runbooks/cost-spike.md) + [`scripts/python/cost_report.py`](scripts/python/cost_report.py)
+- **Model-release pipeline** → [`.github/workflows/model-release.yml`](.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md) + [`scripts/python/model_artifact_validate.py`](scripts/python/model_artifact_validate.py)
+- **Experiment tracking + lineage** → [`platform/mlflow/`](platform/mlflow/)
+- **Vector retrieval (embeddings, prompt-injection canaries)** → [`workloads/vector-db/`](workloads/vector-db/)
+- **Python automation** → [`scripts/python/`](scripts/python/) — SQS audit, cost report, model artifact validate, GPU util, SLO burn
+- **Security posture (OWASP, K8s hardening)** → [`docs/security/owasp-posture.md`](docs/security/owasp-posture.md) + [`ci/.github/workflows/security-scan.yml`](ci/.github/workflows/security-scan.yml)
+- **T2S SLOs** → [`observability/slo/t2s-slo.yaml`](observability/slo/t2s-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
+- **T2S queue backlog incident** → [`docs/runbooks/t2s-queue-backlog.md`](docs/runbooks/t2s-queue-backlog.md)
 - **Pushing back on research asks** → [`docs/onboarding/operating-principles.md`](docs/onboarding/operating-principles.md) (Principle 3)
+- **Senior DevOps role alignment (JD → repo evidence)** → [`docs/role-alignment.md`](docs/role-alignment.md)

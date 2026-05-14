@@ -2,43 +2,43 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: everse-api
-  namespace: everse
+  name: t2s-api
+  namespace: t2s
   labels:
-    app.kubernetes.io/part-of: everse-platform
+    app.kubernetes.io/part-of: t2s-platform
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: everse-api
+      app.kubernetes.io/name: t2s-api
   namespaceSelector:
     matchNames:
-      - everse
+      - t2s
   endpoints:
     - port: http
       path: /metrics
       interval: 30s
       relabelings:
         - targetLabel: service_group
-          replacement: everse
+          replacement: t2s
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: everse-worker
-  namespace: everse
+  name: t2s-worker
+  namespace: t2s
   labels:
-    app.kubernetes.io/part-of: everse-platform
+    app.kubernetes.io/part-of: t2s-platform
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: everse-worker
+      app.kubernetes.io/name: t2s-worker
   namespaceSelector:
     matchNames:
-      - everse
+      - t2s
   endpoints:
     - port: metrics
       path: /metrics
       interval: 30s
       relabelings:
         - targetLabel: service_group
-          replacement: everse
+          replacement: t2s

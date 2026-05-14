@@ -2,7 +2,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: everse-platform
+  name: t2s-platform
   namespace: argocd
   annotations:
     argocd.argoproj.io/sync-wave: "20"
@@ -11,15 +11,15 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    repoURL: https://github.com/T2S/k8s-ai-ml-infra
     targetRevision: main
-    path: workloads/everse-platform
+    path: workloads/t2s-platform
     directory:
       recurse: true
       exclude: application.yaml
   destination:
     server: https://kubernetes.default.svc
-    namespace: everse
+    namespace: t2s
   syncPolicy:
     automated:
       prune: true

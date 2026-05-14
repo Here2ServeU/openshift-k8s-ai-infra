@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    repoURL: https://github.com/T2S/k8s-ai-ml-infra
     targetRevision: main
     path: workloads/kserve-models
     directory:

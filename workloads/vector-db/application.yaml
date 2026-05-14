@@ -2,7 +2,7 @@
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: inference-gateway
+  name: vector-db
   namespace: argocd
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
@@ -10,13 +10,12 @@ spec:
   source:
     repoURL: https://github.com/T2S/k8s-ai-ml-infra
     targetRevision: main
-    path: workloads/inference-gateway
+    path: workloads/vector-db
     directory:
-      recurse: true
-      exclude: 'application.yaml,README.md'
+      exclude: "application.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: workloads
+    namespace: vector-db
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: [CreateNamespace=true, ServerSideApply=true]

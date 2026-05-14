@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(echo \"---exit $?\")"
+      "Bash(echo \"---exit $?\")",
+      "Bash(chmod +x /Users/emmanuelnaweji/k8s-ai-ml-infra/scripts/python/*.py)"
     ]
   }
 }

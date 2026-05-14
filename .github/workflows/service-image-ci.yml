@@ -8,7 +8,7 @@ on:
         description: Service image to build
         required: true
         type: choice
-        options: [everse-api, everse-worker, everse-ui]
+        options: [t2s-api, t2s-worker, t2s-ui]
       dockerfile:
         description: Dockerfile path
         required: true
@@ -22,7 +22,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: your-org
+  IMAGE_OWNER: T2S
 
 jobs:
   build-scan-sign:

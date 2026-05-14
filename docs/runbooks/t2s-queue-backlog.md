@@ -1,12 +1,12 @@
-# Everse queue backlog and worker incidents
+# T2S queue backlog and worker incidents
 
 Use this runbook for any of:
 
-- `EverseEvalQueueAgeHigh` — oldest SQS message > 15 minutes.
-- `EverseDeadLetterQueueGrowing` — new messages landing in the DLQ.
-- `EverseQueueBacklogGrowing` — backlog growing for 20+ minutes (early signal).
-- `EverseWorkerCrashLooping` / `EverseWorkerOOMKilled` — worker stability incident.
-- `EverseVoiceCallConcurrencyNearMax` — voice worker capacity exhaustion.
+- `T2SEvalQueueAgeHigh` — oldest SQS message > 15 minutes.
+- `T2SDeadLetterQueueGrowing` — new messages landing in the DLQ.
+- `T2SQueueBacklogGrowing` — backlog growing for 20+ minutes (early signal).
+- `T2SWorkerCrashLooping` / `T2SWorkerOOMKilled` — worker stability incident.
+- `T2SVoiceCallConcurrencyNearMax` — voice worker capacity exhaustion.
 
 The runbook covers the steady-state structure (triage → mitigation → recovery) and the workload-specific signals you'll actually look at.
 
@@ -16,13 +16,13 @@ The runbook covers the steady-state structure (triage → mitigation → recover
 
 ## Quick orientation
 
-**Service group:** `everse-api` + `everse-worker` (text) + `everse-worker-voice` + `everse-ui`, all in the `everse` namespace.
+**Service group:** `t2s-api` + `t2s-worker` (text) + `t2s-worker-voice` + `t2s-ui`, all in the `t2s` namespace.
 
-**Critical dependencies:** SQS (`everse-eval`, `everse-eval-dlq`), Postgres, Redis, S3 (`everse-artifacts-*`), LLM gateway / external LLM provider.
+**Critical dependencies:** SQS (`t2s-eval`, `t2s-eval-dlq`), Postgres, Redis, S3 (`t2s-artifacts-*`), LLM gateway / external LLM provider.
 
-**Source of truth:** Argo CD application `everse-platform`. Rollback is `git revert` of the digest change.
+**Source of truth:** Argo CD application `t2s-platform`. Rollback is `git revert` of the digest change.
 
-**On-call dashboard:** Grafana → "Everse platform" folder → "Eval queue health".
+**On-call dashboard:** Grafana → "T2S platform" folder → "Eval queue health".
 
 ---
 
@@ -48,14 +48,14 @@ Watch for:
 - Visible >> in-flight → workers aren't picking work up. Look at worker tier next.
 - In-flight high, age high → workers are consuming but not completing. Look at downstream (LLM, Postgres, S3).
 - Visible low, age high → a small number of poison messages are wedging workers. Sample the message.
-- Sent rate >> received rate → producer spike. Confirm with `everse-api` deploy log and recent suite submissions.
+- Sent rate >> received rate → producer spike. Confirm with `t2s-api` deploy log and recent suite submissions.
 
 ### 2. Worker tier
 
 ```bash
-kubectl -n everse get pods -l app.kubernetes.io/name=everse-worker
-kubectl -n everse top pods -l app.kubernetes.io/name=everse-worker
-kubectl -n everse get hpa
+kubectl -n t2s get pods -l app.kubernetes.io/name=t2s-worker
+kubectl -n t2s top pods -l app.kubernetes.io/name=t2s-worker
+kubectl -n t2s get hpa
 ```
 
 Watch for:
@@ -72,11 +72,11 @@ Watch for:
 kubectl -n llm-serving exec deploy/inference-gateway -- curl -s :15000/stats | grep upstream_rq_pending_active
 
 # Postgres connections and wait events
-kubectl -n everse exec deploy/everse-api -- \
+kubectl -n t2s exec deploy/t2s-api -- \
   psql $DATABASE_URL -c "select wait_event_type, wait_event, count(*) from pg_stat_activity group by 1,2 order by 3 desc;"
 
 # Redis latency
-kubectl -n everse exec deploy/everse-api -- redis-cli --latency-history -i 1
+kubectl -n t2s exec deploy/t2s-api -- redis-cli --latency-history -i 1
 
 # S3 error spike
 aws cloudwatch get-metric-statistics --namespace AWS/S3 \
@@ -103,9 +103,9 @@ aws sqs receive-message --queue-url $DLQ_URL --max-number-of-messages 5 \
 
 Classify by error class:
 
-- **Deterministic payload errors** (validation, malformed config) → fix in `everse-api` before redrive.
+- **Deterministic payload errors** (validation, malformed config) → fix in `t2s-api` before redrive.
 - **Transient infra errors** (LLM timeout, S3 503) → safe to redrive after the upstream recovers.
-- **Logic bugs** in the worker (uncaught exception, parse error on response) → fix in `everse-worker` before redrive.
+- **Logic bugs** in the worker (uncaught exception, parse error on response) → fix in `t2s-worker` before redrive.
 
 ---
 
@@ -116,13 +116,13 @@ Choose by what triage told you.
 ### Workers saturated, dependencies healthy
 
 1. Confirm batch node pool has headroom (`kubectl describe nodes | grep -A5 'workload-type=batch'`).
-2. Raise KEDA `maxReplicaCount` temporarily — `kubectl -n everse patch scaledobject everse-worker-sqs --type merge -p '{"spec":{"maxReplicaCount": 100}}'`.
+2. Raise KEDA `maxReplicaCount` temporarily — `kubectl -n t2s patch scaledobject t2s-worker-sqs --type merge -p '{"spec":{"maxReplicaCount": 100}}'`.
 3. Monitor downstream — if Postgres or LLM saturate next, scale back and address the new bottleneck.
-4. After incident, decide whether to bake the new cap into [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/worker.yaml).
+4. After incident, decide whether to bake the new cap into [`workloads/t2s-platform/worker.yaml`](../../workloads/t2s-platform/worker.yaml).
 
 ### LLM inference saturated
 
-1. Reduce per-worker concurrency — `kubectl -n everse set env deploy/everse-worker MAX_CONCURRENT_EVALS=2`.
+1. Reduce per-worker concurrency — `kubectl -n t2s set env deploy/t2s-worker MAX_CONCURRENT_EVALS=2`.
 2. If we host inference, scale the model serving deployment up first — `kubectl -n llm-serving scale rollout/vllm-judge --replicas=8`.
 3. If we use an external provider and we're being rate-limited, route lower-priority suites to a cheaper model tier or pause non-critical sweeps.
 
@@ -130,23 +130,23 @@ Choose by what triage told you.
 
 1. Pause non-critical eval suites at the API level (feature flag).
 2. Reduce high-cardinality write paths — move per-step telemetry to Prometheus if it isn't already.
-3. If a slow query is dominant, capture it via `kubectl -n everse exec deploy/everse-api -- psql $DATABASE_URL -c "select query, total_time, calls from pg_stat_statements order by total_time desc limit 10;"` and run `EXPLAIN ANALYZE` before tuning.
+3. If a slow query is dominant, capture it via `kubectl -n t2s exec deploy/t2s-api -- psql $DATABASE_URL -c "select query, total_time, calls from pg_stat_statements order by total_time desc limit 10;"` and run `EXPLAIN ANALYZE` before tuning.
 
 ### DLQ growing from deterministic failures
 
 1. **Stop redrive.** Redriving deterministic failures just hides the pattern.
-2. Patch validation in `everse-api` (reject bad payloads at submission).
+2. Patch validation in `t2s-api` (reject bad payloads at submission).
 3. Redrive once the fix is deployed.
 
 ### Voice worker concurrency near max
 
-1. Scale up `everse-worker-voice` deployment — but verify the node pool has headroom *before* scaling, because killing nodes with active calls is expensive.
+1. Scale up `t2s-worker-voice` deployment — but verify the node pool has headroom *before* scaling, because killing nodes with active calls is expensive.
 2. If a long-running call is wedged, check `voice_call_setup_duration_seconds` and `voice_asr_confidence` for that pod. A pod stuck in setup is different from a healthy long call.
 3. Do not aggressively scale down after recovery — active calls are stateful. Let cooldown handle it.
 
 ### Worker stability (crash-loop / OOM)
 
-1. Check the last 100 lines of logs from a crashing pod — `kubectl -n everse logs --tail=100 -p <pod-name>`.
+1. Check the last 100 lines of logs from a crashing pod — `kubectl -n t2s logs --tail=100 -p <pod-name>`.
 2. If OOMKilled: raise memory limit *temporarily* and lower `MAX_CONCURRENT_EVALS` until the leak is fixed. Don't raise limits as a permanent fix without root-causing.
 3. If panicking on a specific message: pull that message from the DLQ (after redrive policy moves it there) and reproduce locally.
 4. If a recent deploy is implicated, rollback first, debug second — `git revert <commit> && git push` (Argo CD reconciles within ~30s).
@@ -168,7 +168,7 @@ After the incident clears:
 ## Common root causes (in observed-frequency order)
 
 1. **A model release with worse judge agreement** — eval pass rate drops, DLQ grows from inconsistent judge responses. Rollback the model digest.
-2. **A deploy of `everse-worker` with a regressed Python dependency** — silent memory leak, gradual OOMs. Rollback the service.
+2. **A deploy of `t2s-worker` with a regressed Python dependency** — silent memory leak, gradual OOMs. Rollback the service.
 3. **An LLM provider rate-limit drop** — sudden DLQ spike from upstream 429s. Coordinate with the provider; consider fallback tier.
 4. **A research-team suite submission spike** — backlog grows from increased producer rate. Capacity is healthy; queue freshness drops temporarily. Communicate to the team.
 5. **A Postgres slow query introduced by a schema change** — API latency rises, workers slow because they wait on API writes. Identify the query, add an index or revert.

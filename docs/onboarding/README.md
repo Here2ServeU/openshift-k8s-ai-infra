@@ -1,6 +1,6 @@
-# Everse platform — onboarding for new platform engineers
+# T2S platform — onboarding for new platform engineers
 
-Welcome to the team. This folder is the working introduction to the Everse platform: what it is, how it's built, what's already been decided, and where the load-bearing pieces are. Read it end-to-end in your first week. You'll come back to most of it during your first quarter.
+Welcome to the team. This folder is the working introduction to the T2S platform: what it is, how it's built, what's already been decided, and where the load-bearing pieces are. Read it end-to-end in your first week. You'll come back to most of it during your first quarter.
 
 > Companion docs in this folder:
 >
@@ -18,7 +18,7 @@ This repo is a Kubernetes platform for AI evaluation and LLM-serving workloads. 
 
 We treat the platform as three coupled lanes:
 
-- **Product services** — `everse-ui`, `everse-api`, and `everse-worker`, deployed through Argo CD and promoted by signed image PRs.
+- **Product services** — `t2s-ui`, `t2s-api`, and `t2s-worker`, deployed through Argo CD and promoted by signed image PRs.
 - **AI workloads** — vLLM/KServe inference, model artifact promotion, and Argo Workflows for evaluation suites.
 - **Operations layer** — OpenTelemetry, Prometheus, Loki, Tempo, Grafana, runbooks, SLOs, cost dashboards, and KEDA/Karpenter scaling.
 
@@ -30,19 +30,19 @@ The connective tissue is GitOps: every change — service, model, infra, alert �
 
 | Responsibility | Where it lives | How to think about it |
 | --- | --- | --- |
-| CI/CD and deployment infrastructure | [`.github/workflows/service-image-ci.yml`](../../.github/workflows/service-image-ci.yml), [`.github/workflows/everse-release.yml`](../../.github/workflows/everse-release.yml), [`.github/workflows/model-release.yml`](../../.github/workflows/model-release.yml), [`workloads/llm-serving/helm/templates/rollout.yaml`](../../workloads/llm-serving/helm/templates/rollout.yaml), [`workloads/everse-platform/`](../../workloads/everse-platform/) | We build signed images with SBOMs, promote services and models by immutable artifact, let Argo CD reconcile, and let Argo Rollouts decide promotion using live SLO metrics. |
+| CI/CD and deployment infrastructure | [`.github/workflows/service-image-ci.yml`](../../.github/workflows/service-image-ci.yml), [`.github/workflows/t2s-release.yml`](../../.github/workflows/t2s-release.yml), [`.github/workflows/model-release.yml`](../../.github/workflows/model-release.yml), [`workloads/llm-serving/helm/templates/rollout.yaml`](../../workloads/llm-serving/helm/templates/rollout.yaml), [`workloads/t2s-platform/`](../../workloads/t2s-platform/) | We build signed images with SBOMs, promote services and models by immutable artifact, let Argo CD reconcile, and let Argo Rollouts decide promotion using live SLO metrics. |
 | Observability | [`platform/observability/`](../../platform/observability/), [`observability/dashboards/`](../../observability/dashboards/), [`observability/alerts/`](../../observability/alerts/), [`docs/runbooks/`](../runbooks/) | We instrument user-facing latency, worker queue health, GPU saturation, model quality gates, and cost. Every paging alert points to a runbook. |
-| Reliability, scaling, and cost | [`platform/keda/`](../../platform/keda/), [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/worker.yaml), [`platform/karpenter/`](../../platform/karpenter/), [`docs/runbooks/cost-spike.md`](../runbooks/cost-spike.md) | Fast pod scaling is split from slower node scaling. Workers scale on queue backlog. GPU and batch pools are isolated. Spot and scale-to-zero where the workload tolerates it. |
+| Reliability, scaling, and cost | [`platform/keda/`](../../platform/keda/), [`workloads/t2s-platform/worker.yaml`](../../workloads/t2s-platform/worker.yaml), [`platform/karpenter/`](../../platform/karpenter/), [`docs/runbooks/cost-spike.md`](../runbooks/cost-spike.md) | Fast pod scaling is split from slower node scaling. Workers scale on queue backlog. GPU and batch pools are isolated. Spot and scale-to-zero where the workload tolerates it. |
 
 ---
 
-## How Everse actually works
+## How T2S actually works
 
 ### Workload shape
 
-- **`everse-ui`** — React/Next.js front end. Canary rollout, small CPU requests, served behind ingress.
-- **`everse-api`** — Python API. Handles auth, suite definitions, run orchestration, result reads, and artifact metadata.
-- **`everse-worker`** — Python workers consuming SQS jobs. Run voice/text agent simulation, call LLM services, write artifacts to S3, push metrics.
+- **`t2s-ui`** — React/Next.js front end. Canary rollout, small CPU requests, served behind ingress.
+- **`t2s-api`** — Python API. Handles auth, suite definitions, run orchestration, result reads, and artifact metadata.
+- **`t2s-worker`** — Python workers consuming SQS jobs. Run voice/text agent simulation, call LLM services, write artifacts to S3, push metrics.
 - **Postgres** — source of truth for runs, suites, agent versions, regression history.
 - **Redis** — short-lived cache, rate limits, locks, live run status.
 - **S3** — eval artifacts, transcripts, audio/video assets, model outputs, reproducible run bundles.
@@ -66,7 +66,7 @@ The connective tissue is GitOps: every change — service, model, infra, alert �
 
 Read [architecture-decisions.md](architecture-decisions.md) for the full set. The ones you'll hit first:
 
-- **Queue length alone is not enough.** Workers scale on backlog **and** oldest message age. Backlog tells you volume; age tells you user pain. See [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/worker.yaml).
+- **Queue length alone is not enough.** Workers scale on backlog **and** oldest message age. Backlog tells you volume; age tells you user pain. See [`workloads/t2s-platform/worker.yaml`](../../workloads/t2s-platform/worker.yaml).
 - **GPU autoscaling has a time constant.** Pods react in seconds, nodes in minutes, model load can dominate both. We keep a warm floor for production and scale to zero only in non-prod or batch-safe paths.
 - **Eval quality gates need statistical discipline.** A simple win-rate threshold is a start, but production gates use confidence intervals, position-swapped LLM judges, and fixed benchmark snapshots.
 - **GitOps is a control plane, not a release strategy by itself.** We still own artifact signing, environment promotion, rollout analysis, rollback paths, and the failed-deploy response.
@@ -162,7 +162,7 @@ See [voice-agent-infra.md](voice-agent-infra.md). Short version:
 6. On completion, Redis pub/sub notifies the UI so the run status updates in real-time without polling.
 7. Metrics, logs, and traces stream through OTel to Prometheus/Loki/Tempo. The cost-per-run metric is computed from worker time × node price + LLM tokens × model price.
 
-The thing that makes this **Everse**, not just "a worker pool", is reproducibility: same persona seed, same model digest, same suite version → same result. Enforced by content-addressed everything.
+The thing that makes this **T2S**, not just "a worker pool", is reproducibility: same persona seed, same model digest, same suite version → same result. Enforced by content-addressed everything.
 
 ---
 
@@ -170,8 +170,8 @@ The thing that makes this **Everse**, not just "a worker pool", is reproducibili
 
 Be honest about gaps as you ramp:
 
-- Image names (`ghcr.io/your-org/...`) and cloud account IDs in the manifests are placeholders.
-- `everse-platform` is the infrastructure scaffold for the product; the application source code lives in a separate repo.
+- Image names (`ghcr.io/T2S/...`) and cloud account IDs in the manifests are placeholders.
+- `t2s-platform` is the infrastructure scaffold for the product; the application source code lives in a separate repo.
 - The sample eval workflow uses a simplified win-rate gate. Production should use stronger statistical checks (CI-aware, position-swap LLM judges, fixed benchmark snapshots).
 - Local mode is for demos and does not reproduce real GPU scheduling or managed cloud IAM.
 

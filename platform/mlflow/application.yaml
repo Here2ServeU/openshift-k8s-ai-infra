@@ -1,0 +1,67 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mlflow
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://community-charts.github.io/helm-charts
+    chart: mlflow
+    targetRevision: 0.9.0
+    helm:
+      releaseName: mlflow
+      values: |
+        backendStore:
+          postgres:
+            enabled: true
+            host: t2s-postgres.t2s.svc.cluster.local
+            port: 5432
+            database: mlflow
+            user: mlflow
+            existingSecret: mlflow-postgres
+            existingSecretPasswordKey: password
+        artifactRoot:
+          s3:
+            enabled: true
+            # bucket is provisioned by terraform/aws/s3.tf — same bucket as
+            # the model registry; MLflow lives under a dedicated prefix.
+            bucket: ai-ml-infra-models
+            path: mlflow/
+        serviceAccount:
+          create: true
+          name: mlflow
+          annotations:
+            # IRSA on AWS — scope to s3://ai-ml-infra-models/mlflow/* only.
+            eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/mlflow-artifact-rw
+            # GCP Workload Identity equivalent
+            iam.gke.io/gcp-service-account: mlflow@PROJECT.iam.gserviceaccount.com
+        service:
+          type: ClusterIP
+          port: 5000
+        resources:
+          requests: { cpu: 200m, memory: 512Mi }
+          limits:   { cpu: "1",  memory: 2Gi }
+        serviceMonitor:
+          enabled: true
+          labels:
+            release: kube-prometheus-stack
+        podSecurityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          seccompProfile: { type: RuntimeDefault }
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: { drop: ["ALL"] }
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mlflow
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

@@ -25,7 +25,7 @@ This chart deploys vLLM as an OpenAI-compatible chat completion server. It's the
    - 10% canary, 5m bake, AnalysisTemplate check.
    - 50% canary, 5m bake, AnalysisTemplate check (now with a fresh eval-winrate metric from the full eval run).
    - 100%.
-5. **Rollback**: revert the PR. ArgoCD syncs back; Rollouts reverses the strategy.
+5. **Rollback**: revert the PR. ArgoCD syncs back; Rollouts rt2ss the strategy.
 
 ## Tuning vLLM
 

@@ -1,22 +1,26 @@
 ---
+# Sync-wave 5: after Postgres / external-secrets but before workloads that
+# might log to MLflow. The MLflow Application spec itself lives next to the
+# rest of the platform components under platform/mlflow/.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: data-pipeline
+  name: mlflow-bootstrap
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "5"
   finalizers: [resources-finalizer.argocd.argoproj.io]
 spec:
   project: default
   source:
     repoURL: https://github.com/T2S/k8s-ai-ml-infra
     targetRevision: main
-    path: workloads/data-pipeline
+    path: platform/mlflow
     directory:
-      recurse: true
-      exclude: 'application.yaml,README.md'
+      include: "application.yaml"
   destination:
     server: https://kubernetes.default.svc
-    namespace: workloads
+    namespace: argocd
   syncPolicy:
     automated: { prune: true, selfHeal: true }
     syncOptions: [ServerSideApply=true]

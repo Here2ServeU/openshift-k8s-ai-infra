@@ -20,7 +20,7 @@ That moves the bottleneck from workers to the *next* binding constraint — Post
 
 ## Where scaling actually breaks
 
-For Everse-style eval workloads, the binding constraints are almost always in this order:
+For T2S-style eval workloads, the binding constraints are almost always in this order:
 
 1. **LLM inference capacity** — the model under evaluation and the LLM judge.
 2. **Worker compute** — Python eval loop, persona simulation, scoring orchestration.
@@ -41,7 +41,7 @@ Plus two that are easy to miss:
 Before any scaling work, ship the observability needed to *see* each constraint:
 
 - **LLM gateway** — request rate, queue depth, p95 latency by model variant. If the team is using an external API, add provider rate-limit headroom as a metric.
-- **Worker tier** — CPU saturation, memory ceiling, retry rate per worker, oldest-message age. (Already in [`observability/alerts/everse-platform.yaml`](../../observability/alerts/everse-platform.yaml) — verify the dashboard is wired.)
+- **Worker tier** — CPU saturation, memory ceiling, retry rate per worker, oldest-message age. (Already in [`observability/alerts/t2s-platform.yaml`](../../observability/alerts/t2s-platform.yaml) — verify the dashboard is wired.)
 - **Postgres** — `pg_stat_activity` wait events, replication lag, slow query log on the run-events and run-metrics tables.
 - **S3** — 4xx/5xx rate (esp. `SlowDown` 503), request volume per prefix.
 - **Cost** — `eval_run_cost_usd_total` and the per-run breakdown.
@@ -72,7 +72,7 @@ The expensive layer, and usually the binding one.
 ### Layer 2: Worker compute
 
 - Raise KEDA `maxReplicaCount` to a number derived from worker-throughput × forecast, with ~30% buffer.
-- Verify scale-up rate (currently 200%/min in [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/worker.yaml)). If the scale-up signal is fast but node provisioning is slow, the bottleneck is Karpenter, not KEDA.
+- Verify scale-up rate (currently 200%/min in [`workloads/t2s-platform/worker.yaml`](../../workloads/t2s-platform/worker.yaml)). If the scale-up signal is fast but node provisioning is slow, the bottleneck is Karpenter, not KEDA.
 - Add a dedicated batch node pool (spot, taint-isolated) sized for the new ceiling. Confirm taints/tolerations on the worker spec match.
 - Verify `MAX_CONCURRENT_EVALS` per worker (env var) — sometimes raising in-pod concurrency is cheaper than adding pods, up to the LLM gateway limit.
 
@@ -87,7 +87,7 @@ This is the silent killer for high-throughput eval platforms.
 
 ### Layer 4: S3
 
-- Shard the artifact prefix. `s3://everse/artifacts/<run-id>/...` becomes `s3://everse/artifacts/<hash-prefix>/<run-id>/...`. S3 request-rate scales per-prefix; flat prefixes cap at a few thousand requests/sec.
+- Shard the artifact prefix. `s3://t2s/artifacts/<run-id>/...` becomes `s3://t2s/artifacts/<hash-prefix>/<run-id>/...`. S3 request-rate scales per-prefix; flat prefixes cap at a few thousand requests/sec.
 - Use multipart upload for audio/video artifacts to keep upload latency stable as size grows.
 - For listing operations (which back the UI's "recent runs" view), serve from Postgres + S3 pointers rather than direct `ListObjectsV2`.
 

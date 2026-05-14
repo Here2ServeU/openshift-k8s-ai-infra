@@ -52,7 +52,7 @@ spec:
           annotations:
             summary: "LLM error-budget burning at 14.4× (1h)"
             description: "1h error ratio is {{ $value | humanizePercentage }}. At this rate the 30d budget is gone in 2 days."
-            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+            runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
 
         - alert: LLMAvailabilitySlowBurn
           # 6× burn on 6h — error budget gone in 5 days. Wakes during business hours.
@@ -64,7 +64,7 @@ spec:
             team: platform
           annotations:
             summary: "LLM error-budget burning at 6× (6h)"
-            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+            runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
 
         - alert: LLMTTFTBreaching
           expr: |
@@ -76,7 +76,7 @@ spec:
             team: platform
           annotations:
             summary: "TTFT p95 above 500ms target"
-            runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+            runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
 
         - alert: LLMKVCacheNearFull
           # Leading indicator: KV cache > 90% means we're about to evict / queue.

@@ -1,10 +1,10 @@
 # Voice and text agent simulation infrastructure
 
-Everse simulates voice and text agents through configurable personas (tone, speech speed, call quality), runs test suites against agent variants, and compares results to detect regressions. This doc explains how that workload sits on the Kubernetes platform — what's the same as a text-only eval pipeline, and what's specifically different about voice.
+T2S simulates voice and text agents through configurable personas (tone, speech speed, call quality), runs test suites against agent variants, and compares results to detect regressions. This doc explains how that workload sits on the Kubernetes platform — what's the same as a text-only eval pipeline, and what's specifically different about voice.
 
 You'll work with this layer when:
 
-- An on-call alert references `everse-worker-voice` (the voice tier).
+- An on-call alert references `t2s-worker-voice` (the voice tier).
 - Capacity planning needs to account for voice runs separately from text runs.
 - Researchers ask to add a new persona variant or audio-quality profile.
 - A cost spike traces back to ASR/TTS or audio storage.
@@ -25,12 +25,12 @@ Text agent evals are comparatively simple: prompt in, response out, score it, mo
 
 ```
                       ┌──────────────────────────┐
-                      │  everse-ui (suite runner)│
+                      │  t2s-ui (suite runner)│
                       └─────────────┬────────────┘
                                     │  HTTPS
                                     ▼
                       ┌──────────────────────────┐
-                      │  everse-api              │
+                      │  t2s-api              │
                       │  • create run            │
                       │  • persist suite state   │
                       │  • enqueue per-call jobs │
@@ -38,13 +38,13 @@ Text agent evals are comparatively simple: prompt in, response out, score it, mo
                                     │  SQS
                                     ▼
               ┌───────────────────────────────────────┐
-              │  everse-worker (text)                 │
+              │  t2s-worker (text)                 │
               │  • short-lived                        │
               │  • CPU pool, KEDA on backlog+age      │
               └───────────────────────────────────────┘
 
               ┌───────────────────────────────────────┐
-              │  everse-worker-voice                  │
+              │  t2s-worker-voice                  │
               │  • longer-lived (1 call = 1 pod-slot) │
               │  • CPU pool with audio codecs         │
               │  • holds RTC session for call length  │
@@ -110,7 +110,7 @@ The voice dashboard groups these by `agent_version` and `persona_id` so regressi
 
 ## Voice-specific alerts
 
-Voice has its own alert set in addition to the shared `everse-api` and `everse-worker` alerts in [`observability/alerts/everse-platform.yaml`](../../observability/alerts/everse-platform.yaml):
+Voice has its own alert set in addition to the shared `t2s-api` and `t2s-worker` alerts in [`observability/alerts/t2s-platform.yaml`](../../observability/alerts/t2s-platform.yaml):
 
 - **Active-call concurrency near max.** Capacity headroom is much smaller than for batch workers because we can't easily preempt active calls.
 - **Voice worker OOMKill increase.** A memory pressure issue inside a codec loop is silent at the SQS layer; only the audio artifact size or upload pattern will show it.
@@ -143,7 +143,7 @@ The `eval_run_cost_usd` metric breaks down into `voice_call_cost_usd` and `text_
 
 ## What lives in this repo vs. the application repo
 
-This repo includes the worker scaffold and the scaling/observability patterns. It does **not** include the actual voice codec stack, RTC stack, or persona simulator — those are application-level concerns in the Everse application repo. What the platform owns on behalf of that team:
+This repo includes the worker scaffold and the scaling/observability patterns. It does **not** include the actual voice codec stack, RTC stack, or persona simulator — those are application-level concerns in the T2S application repo. What the platform owns on behalf of that team:
 
 - A node pool sized and tainted for voice workloads.
 - A KEDA configuration that scales on `voice_call_active_count` rather than queue length.

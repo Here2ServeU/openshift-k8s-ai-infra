@@ -2,29 +2,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: everse-worker
-  namespace: everse
+  name: t2s-worker
+  namespace: t2s
   labels:
-    app.kubernetes.io/name: everse-worker
+    app.kubernetes.io/name: t2s-worker
     app.kubernetes.io/component: worker
-    app.kubernetes.io/part-of: everse-platform
+    app.kubernetes.io/part-of: t2s-platform
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app.kubernetes.io/name: everse-worker
+      app.kubernetes.io/name: t2s-worker
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: everse-worker
+        app.kubernetes.io/name: t2s-worker
         app.kubernetes.io/component: worker
-        app.kubernetes.io/part-of: everse-platform
+        app.kubernetes.io/part-of: t2s-platform
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/path: /metrics
         prometheus.io/port: "9090"
     spec:
-      serviceAccountName: everse-worker
+      serviceAccountName: t2s-worker
       nodeSelector:
         workload-type: batch
       tolerations:
@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: worker
-          image: ghcr.io/your-org/everse-worker:0.1.0
+          image: ghcr.io/T2S/t2s-worker:0.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: metrics
@@ -47,16 +47,16 @@ spec:
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector.observability:4317
             - name: OTEL_SERVICE_NAME
-              value: everse-worker
+              value: t2s-worker
             - name: EVAL_QUEUE_URL
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: eval-queue-url
             - name: ARTIFACT_BUCKET
               valueFrom:
                 secretKeyRef:
-                  name: everse-runtime
+                  name: t2s-runtime
                   key: artifact-bucket
             - name: MAX_CONCURRENT_EVALS
               value: "4"
@@ -75,13 +75,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: everse-worker
-  namespace: everse
+  name: t2s-worker
+  namespace: t2s
   labels:
-    app.kubernetes.io/name: everse-worker
+    app.kubernetes.io/name: t2s-worker
 spec:
   selector:
-    app.kubernetes.io/name: everse-worker
+    app.kubernetes.io/name: t2s-worker
   ports:
     - name: metrics
       port: 9090
@@ -90,11 +90,11 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: everse-worker-sqs
-  namespace: everse
+  name: t2s-worker-sqs
+  namespace: t2s
 spec:
   scaleTargetRef:
-    name: everse-worker
+    name: t2s-worker
   pollingInterval: 15
   cooldownPeriod: 300
   minReplicaCount: 2
@@ -133,4 +133,4 @@ spec:
         serverAddress: http://prometheus-operated.observability.svc:9090
         threshold: "300"
         query: |
-          max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="everse-eval"})
+          max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="t2s-eval"})

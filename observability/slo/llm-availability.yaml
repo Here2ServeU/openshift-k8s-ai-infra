@@ -28,7 +28,7 @@ slos:
         category: availability
       annotations:
         summary: "Error-budget burn rate on the LLM availability SLO"
-        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
       page_alert:
         labels: { severity: critical }
       ticket_alert:
@@ -50,7 +50,7 @@ slos:
         category: latency
       annotations:
         summary: "TTFT SLO error-budget burning fast"
-        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
+        runbook_url: "https://github.com/T2S/k8s-ai-ml-infra/blob/main/docs/runbooks/inference-latency-spike.md"
       page_alert:
         labels: { severity: critical }
       ticket_alert:

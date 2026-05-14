@@ -1,6 +1,6 @@
 # Architecture decisions you're inheriting
 
-These are the load-bearing calls the team has already made on the Everse platform. You're not being asked to re-litigate them on day one, but you should know them well enough to:
+These are the load-bearing calls the team has already made on the T2S platform. You're not being asked to re-litigate them on day one, but you should know them well enough to:
 
 - Operate the platform without surprises.
 - Spot when a new requirement would push us to revisit one.
@@ -14,19 +14,19 @@ For the formal record, see also [`docs/decisions/`](../decisions/) — the ADRs.
 
 ## 1. KEDA on backlog *and* age, not backlog alone
 
-**The call.** `everse-worker` scales on SQS visible-message count **plus** oldest-message-age, with a Prometheus fallback that keeps the second signal observable.
+**The call.** `t2s-worker` scales on SQS visible-message count **plus** oldest-message-age, with a Prometheus fallback that keeps the second signal observable.
 
 **Why.** Message count tells you how much work is queued. Age tells you whether anyone is stuck. They diverge during the failure modes that actually cause user pain: a small queue with a 30-minute oldest message means workers are wedged on a slow message, and we need to react before the queue grows.
 
 **Tradeoff.** Two triggers is more configuration and a slightly noisier scale-up curve. Worth it because age is a leading indicator of user-perceived eval delay and a single-signal trigger misses it.
 
-**What would flip it.** If `everse-worker` becomes strictly homogeneous and short-lived (every message under 30 seconds), age and length collapse to the same signal and one is enough.
+**What would flip it.** If `t2s-worker` becomes strictly homogeneous and short-lived (every message under 30 seconds), age and length collapse to the same signal and one is enough.
 
-See [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/worker.yaml).
+See [`workloads/t2s-platform/worker.yaml`](../../workloads/t2s-platform/worker.yaml).
 
 ---
 
-## 2. Argo Rollouts canary on `everse-api`, plain rolling update on `everse-worker`
+## 2. Argo Rollouts canary on `t2s-api`, plain rolling update on `t2s-worker`
 
 **The call.** API uses canary with metric analysis. Worker uses rolling update with KEDA-driven replacement.
 
@@ -100,13 +100,13 @@ See [`workloads/everse-platform/worker.yaml`](../../workloads/everse-platform/wo
 
 ## 8. One namespace per service group, not one namespace per microservice
 
-**The call.** `everse-platform` lives in a single `everse` namespace with UI, API, and worker together. Other workload groups (LLM serving, eval platform, data pipeline) get their own namespace.
+**The call.** `t2s-platform` lives in a single `t2s` namespace with UI, API, and worker together. Other workload groups (LLM serving, eval platform, data pipeline) get their own namespace.
 
 **Why.** Namespace per service is fashionable but adds friction for related services that share secrets, network policy, and Service discovery. Service group = blast-radius boundary. The cost (slightly larger NetworkPolicy graphs inside the namespace) is manageable.
 
 **Tradeoff.** Less isolation between sibling services. A noisy neighbor inside the same namespace can starve quotas if quotas are set at the pod level rather than per-deployment.
 
-**What would flip it.** Strong multi-tenancy requirements (different teams shipping into Everse), or a regulatory boundary between two services in the same group.
+**What would flip it.** Strong multi-tenancy requirements (different teams shipping into T2S), or a regulatory boundary between two services in the same group.
 
 ---
 

@@ -17,7 +17,7 @@ git revert <merge-commit-sha>
 git push
 ```
 
-ArgoCD picks up the revert within ~30s. The Rollout sees a new revision (the old digest) and runs the same canary strategy in reverse:
+ArgoCD picks up the revert within ~30s. The Rollout sees a new revision (the old digest) and runs the same canary strategy in rt2s:
 
 - 10% on the old digest, 5min bake, AnalysisTemplate (same SLO checks).
 - 50%, bake, check.
