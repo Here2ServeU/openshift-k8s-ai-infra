@@ -44,6 +44,15 @@ dist/
 build/
 bin/
 
+### Node / Next.js ###
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+.npm/
+.yarn/
+.pnp.*
+
 ### Secrets / keys (never commit) ###
 *.pem
 *.key

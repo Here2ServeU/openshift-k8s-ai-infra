@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body {
+    background: #0a0f1f;
+    color: #e8ecf7;
+    font-feature-settings: "cv11", "ss03", "ss02", "ss01";
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Subtle grid texture, calibrated, not decorative. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 1px 1px, rgba(94, 234, 212, 0.05) 1px, transparent 0);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse at top, black 30%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse at top, black 30%, transparent 80%);
+    z-index: 0;
+  }
+
+  ::selection {
+    background: rgba(94, 234, 212, 0.25);
+    color: #e8ecf7;
+  }
+
+  /* Scrollbars in the brand palette. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #232e47;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #2b375a;
+  }
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-border bg-surface shadow-inset;
+  }
+
+  .card-elevated {
+    @apply rounded-lg border border-border bg-elevated shadow-inset;
+  }
+
+  .hairline {
+    @apply border-t border-border-subtle;
+  }
+
+  .caption {
+    @apply text-caption uppercase tracking-[0.08em] text-ink-muted;
+  }
+
+  .mono {
+    @apply font-mono text-[0.8125rem] leading-[1.15rem];
+  }
+
+  /* Subtle accent gradient stroke for highlighted rows. */
+  .accent-row {
+    background: linear-gradient(
+      90deg,
+      rgba(94, 234, 212, 0.06) 0%,
+      transparent 60%
+    );
+    border-left: 1px solid #2dd4bf;
+  }
+
+  .kbd {
+    @apply inline-flex items-center gap-1 rounded-sm border border-border bg-elevated px-1.5 py-0.5 text-[0.6875rem] text-ink-secondary;
+  }
+
+  /* The signature focus ring — instrument-glow, not OS-blue. */
+  *:focus-visible {
+    outline: 2px solid #5eead4;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+}

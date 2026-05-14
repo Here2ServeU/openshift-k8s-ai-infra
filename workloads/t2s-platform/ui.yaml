@@ -37,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: ui
-          image: ghcr.io/T2S/t2s-ui:0.1.0
+          image: ghcr.io/T2S/t2s-ui:0.2.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -45,14 +45,22 @@ spec:
           env:
             - name: NEXT_PUBLIC_API_BASE_URL
               value: /api
+            - name: NODE_ENV
+              value: production
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: "0.0.0.0"
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /api/healthz
               port: http
             periodSeconds: 10
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /api/healthz
               port: http
             periodSeconds: 30
           resources:

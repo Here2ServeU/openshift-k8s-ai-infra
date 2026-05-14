@@ -87,6 +87,62 @@ dashboards: ## Open Grafana with the LLM serving dashboard.
 	@echo "Grafana → http://localhost:3000   (admin / prom-operator)"
 	kubectl port-forward -n $(NAMESPACE_OBS) svc/kube-prometheus-stack-grafana 3000:80
 
+##@ T2S operator UI
+
+UI_DIR := workloads/t2s-platform/ui
+UI_PORT ?= auto
+
+.PHONY: ui-dev
+ui-dev: ## Start the t2s-ui Next.js dev server. Set UI_PORT=3010 to pin; default picks the first free port among 3000/3010/3020.
+	@cd $(UI_DIR) && \
+	if [ ! -d node_modules ]; then echo "→ installing deps"; npm install --no-audit --no-fund; fi && \
+	PORT=$$( \
+	  if [ "$(UI_PORT)" != "auto" ]; then echo $(UI_PORT); \
+	  else for p in 3000 3010 3020 3030; do \
+	    if ! lsof -nP -iTCP:$$p -sTCP:LISTEN >/dev/null 2>&1; then echo $$p; break; fi; \
+	  done; fi \
+	) && \
+	echo "→ t2s-ui on http://localhost:$$PORT" && \
+	npx next dev -p $$PORT
+
+.PHONY: ui-build
+ui-build: ## Production build of the t2s-ui standalone server.
+	cd $(UI_DIR) && npm install --no-audit --no-fund && npm run build
+
+.PHONY: ui-docker
+ui-docker: ## Build the t2s-ui container image (ghcr.io/T2S/t2s-ui:0.2.0).
+	docker build -t ghcr.io/T2S/t2s-ui:0.2.0 $(UI_DIR)
+
+.PHONY: ui-share
+ui-share: ## Expose the local dev server on a public https URL via cloudflared.
+	@command -v cloudflared >/dev/null || { echo "Install cloudflared: brew install cloudflared"; exit 1; }
+	@PORT=$$(lsof -nP -iTCP -sTCP:LISTEN -c node | awk '/next-server|next dev/ {print $$9}' | sed 's/.*://' | head -1); \
+	if [ -z "$$PORT" ]; then echo "No t2s-ui dev server running. Run: make ui-dev"; exit 1; fi; \
+	echo "→ tunneling http://localhost:$$PORT"; \
+	cloudflared tunnel --url http://localhost:$$PORT
+
+##@ Local component tests
+
+.PHONY: test-local
+test-local: test-vector-db test-mlflow test-voice-agent test-python ## Run every local component test in sequence.
+	@echo "→ All local component tests passed."
+
+.PHONY: test-vector-db
+test-vector-db: ## Apply Qdrant, upsert + query a sample vector, tear down port-forward.
+	@bash scripts/test-vector-db.sh
+
+.PHONY: test-mlflow
+test-mlflow: ## Spin up MLflow (SQLite backend) and log a sample run.
+	@bash scripts/test-mlflow.sh
+
+.PHONY: test-voice-agent
+test-voice-agent: ## Apply voice-agent manifests, assert KEDA + NetworkPolicy + RBAC contract.
+	@bash scripts/test-voice-agent.sh
+
+.PHONY: test-python
+test-python: ## Smoke every Python automation script (--help + SLO + GPU report + SQS via LocalStack).
+	@bash scripts/test-python.sh
+
 ##@ Cloud deploys
 
 .PHONY: aws-up

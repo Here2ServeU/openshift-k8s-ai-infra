@@ -1,0 +1,67 @@
+---
+# Local-only MLflow deployment for `make test-mlflow`.
+# Production uses the Helm chart in platform/mlflow/ with a real Postgres + S3.
+# This manifest swaps both for SQLite + an in-pod filesystem so the test runs
+# on kind with no extra dependencies.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mlflow
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mlflow
+  namespace: mlflow
+  labels: { app.kubernetes.io/name: mlflow }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: mlflow }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: mlflow }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mlflow
+          image: ghcr.io/mlflow/mlflow:v2.16.2
+          imagePullPolicy: IfNotPresent
+          command: ["mlflow"]
+          args:
+            - server
+            - --host=0.0.0.0
+            - --port=5000
+            - --backend-store-uri=sqlite:////var/mlflow/mlflow.db
+            - --default-artifact-root=/var/mlflow/artifacts
+          ports:
+            - { name: http, containerPort: 5000 }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: "1",  memory: 1Gi }
+          volumeMounts:
+            - { name: data, mountPath: /var/mlflow }
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mlflow
+  namespace: mlflow
+  labels: { app.kubernetes.io/name: mlflow }
+spec:
+  selector: { app.kubernetes.io/name: mlflow }
+  ports:
+    - { name: http, port: 5000, targetPort: http }

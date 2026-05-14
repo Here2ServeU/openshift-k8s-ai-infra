@@ -83,6 +83,142 @@ make local-down
 
 The local stack runs a small open-weights model (TinyLlama by default) on CPU so no GPU is required. Set `GPU=1` to use vLLM with CUDA if you have one.
 
+## Demo — T2S operator UI
+
+A custom Next.js 14 surface built for this repo. *Trust to Scale* — evaluation and assurance for AI agents and ML/robotic systems being deployed into highly regulated healthcare environments (FDA SaMD, IEC 62304, ISO 13485, EU MDR, HIPAA). Five screens, hand-rolled components (no shadcn / chart libs / icon fonts), and a calibrated dark palette that matches the Grafana dashboards.
+
+![Mission Control](docs/screenshots/01-mission-control.png)
+
+![Eval Runs](docs/screenshots/02-eval-runs.png)
+
+![Personas](docs/screenshots/03-personas.png)
+
+![Compliance](docs/screenshots/04-compliance.png)
+
+![Audit Trail](docs/screenshots/05-audit-trail.png)
+
+### Run it locally
+
+```bash
+make ui-dev                       # picks the first free port among 3000/3010/3020
+# → http://localhost:<port>
+```
+
+Under the hood: `cd workloads/t2s-platform/ui && npm install && npx next dev -p <free-port>`. Set `UI_PORT=3010` to pin the port if you want a stable URL. Source + brand identity lives in [`workloads/t2s-platform/ui/`](workloads/t2s-platform/ui/) — see [`BRAND.md`](workloads/t2s-platform/ui/BRAND.md) for the design rationale.
+
+---
+
+## Testing the new components locally
+
+Each piece added for the T2S role brief — voice-agent tier, Qdrant vector DB, MLflow, Python automation scripts — can be exercised on the local `kind` cluster after `make local-up`. Some of these use real upstream images that run cleanly locally; the T2S-specific service images (`t2s-api`, `t2s-worker`, `t2s-worker-voice`) are placeholders and will land in `ImagePullBackOff` — that's expected, and the test steps below verify the *platform contract* (NetworkPolicy, ScaledObject, RBAC) rather than the application code.
+
+### 1. Vector DB (Qdrant) — real upstream image, fully exercisable
+
+```bash
+make test-vector-db    # apply manifests, wait for ready, upsert + query a sample vector
+```
+
+What it does, step by step:
+
+```bash
+kubectl apply -f workloads/vector-db/
+kubectl -n vector-db rollout status statefulset/qdrant --timeout=180s
+kubectl -n vector-db port-forward svc/qdrant 6333:6333 &
+# create a collection
+curl -s -X PUT http://localhost:6333/collections/demo \
+  -H 'Content-Type: application/json' \
+  -d '{"vectors":{"size":4,"distance":"Cosine"}}'
+# upsert one vector
+curl -s -X PUT http://localhost:6333/collections/demo/points \
+  -H 'Content-Type: application/json' \
+  -d '{"points":[{"id":1,"vector":[0.1,0.2,0.3,0.4],"payload":{"label":"hello"}}]}'
+# query
+curl -s -X POST http://localhost:6333/collections/demo/points/search \
+  -H 'Content-Type: application/json' \
+  -d '{"vector":[0.1,0.2,0.3,0.4],"limit":1}'
+```
+
+You should see a single hit with `score: 1.0`. The NetworkPolicy is loose enough that the port-forward works because port-forwarding bypasses cluster networking — production access would come from the inference-gateway / eval / argo-workflows namespaces only.
+
+### 2. MLflow tracking server
+
+The ArgoCD app uses a Postgres backend that doesn't exist locally. For a local-only test, run MLflow with SQLite + a local-fs artifact store using the helper script:
+
+```bash
+make test-mlflow       # spins up MLflow in-cluster with SQLite, then logs a sample run
+```
+
+Under the hood this applies `local/mlflow-local.yaml` (a minimal Deployment + Service with `--backend-store-uri sqlite:///mlflow.db`) and port-forwards `5000:5000`. The script then logs a parameter + metric:
+
+```bash
+pip install mlflow
+export MLFLOW_TRACKING_URI=http://localhost:5000
+python -c "
+import mlflow
+with mlflow.start_run():
+    mlflow.log_param('model', 'tinyllama')
+    mlflow.log_metric('eval_pass_rate', 0.92)
+print('open:', mlflow.get_tracking_uri())
+"
+```
+
+Then open <http://localhost:5000> to see the run. This proves the contract; production swaps SQLite for the Postgres backing store defined in [`platform/mlflow/application.yaml`](platform/mlflow/application.yaml).
+
+### 3. Voice-agent tier — platform contract test
+
+The application image `ghcr.io/T2S/t2s-worker-voice:0.1.0` is a placeholder, so pods will `ImagePullBackOff`. What we *can* test locally is everything the platform is responsible for:
+
+```bash
+make test-voice-agent  # applies manifests, asserts KEDA ScaledObject + NetworkPolicy + RBAC are correct
+```
+
+The test does four things:
+
+1. Applies [`workloads/voice-agent/`](workloads/voice-agent/) and waits for ArgoCD / direct apply to reconcile.
+2. Verifies the `ScaledObject` was created and KEDA wired the HPA: `kubectl -n t2s-voice get scaledobject,hpa`.
+3. Verifies the default-deny NetworkPolicy + the IMDS egress block — `kubectl -n t2s-voice get networkpolicy -o yaml | grep -A1 "except:" | grep 169.254.169.254`.
+4. Verifies the ServiceAccount has the IRSA / Workload Identity annotations and the SA token projection works.
+
+Swap in a real image (or a stub that emits `voice_call_active_count` from `/metrics`) to actually exercise scaling — the [Prometheus trigger query](workloads/voice-agent/scaledobject.yaml#L43-L49) will pick up the synthetic metric and scale the deployment.
+
+### 4. Python automation scripts
+
+The scripts are stdlib-plus-boto3 and can run against the local cluster's Prometheus + an SQS endpoint (real AWS, or `moto-server` / LocalStack):
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r scripts/python/requirements.txt
+
+# unit-smoke: every script supports --help and exits cleanly
+for s in scripts/python/*.py; do python "$s" --help >/dev/null && echo "OK: $s"; done
+
+# SLO burn check against the in-cluster Prometheus
+kubectl -n observability port-forward svc/prometheus-operated 9090:9090 &
+PROM_URL=http://localhost:9090 python scripts/python/slo_burn_check.py
+
+# GPU util report (no GPUs locally → all rows show 0% util, which is the point)
+PROM_URL=http://localhost:9090 python scripts/python/gpu_util_report.py --hours 1
+
+# Queue audit against LocalStack
+docker run -d --rm -p 4566:4566 --name localstack localstack/localstack
+aws --endpoint-url=http://localhost:4566 sqs create-queue --queue-name t2s-eval
+AWS_REGION=us-east-1 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
+  AWS_ENDPOINT_URL=http://localhost:4566 \
+  python scripts/python/queue_audit.py --queue t2s-eval
+```
+
+`make test-python` runs the four checks above end-to-end and asserts exit codes.
+
+### Run the full local test suite
+
+```bash
+make test-local        # vector-db + mlflow + voice-agent + python, in order
+```
+
+This is the gate you want green before opening a PR that touches the new components. CI runs the same targets on every PR via [`ci/.github/workflows/helm-lint.yml`](ci/.github/workflows/helm-lint.yml) and [`ci/.github/workflows/argocd-sync-check.yml`](ci/.github/workflows/argocd-sync-check.yml).
+
+---
+
 ## Quickstart — deploy to AWS
 
 ```bash
@@ -208,7 +344,7 @@ Spot GPU pools, scale-to-zero on dev models (KEDA `cooldownPeriod`), and request
 
 ## What's NOT in here
 
-Be honest with yourself in interviews — call out what's stubbed vs. real:
+Be honest with yourself when meeting with clients — call out what's stubbed vs. real:
 
 - **No real authn/authz** beyond a placeholder JWT validator at the gateway. Wire this to your IdP (Okta, Auth0, Cognito) in a real deployment.
 - **No production secrets** — External Secrets Operator is installed but configured to read from a local mock backend; swap to AWS Secrets Manager / GCP Secret Manager.
@@ -231,6 +367,8 @@ New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is 
 ### Where to look for specific topics
 
 - **Running T2S on Kubernetes** → [`workloads/t2s-platform/`](workloads/t2s-platform/) + [`docs/onboarding/README.md`](docs/onboarding/README.md) + [ADR-008](docs/decisions/008-t2s-service-group.md)
+- **T2S operator UI (Next.js, branded)** → [`workloads/t2s-platform/ui/`](workloads/t2s-platform/ui/) + [`workloads/t2s-platform/ui/BRAND.md`](workloads/t2s-platform/ui/BRAND.md)
+- **Branded Grafana dashboards** → [`observability/dashboards/BRAND.md`](observability/dashboards/BRAND.md)
 - **Voice/text agent simulation** → [`workloads/voice-agent/`](workloads/voice-agent/) + [`docs/onboarding/voice-agent-infra.md`](docs/onboarding/voice-agent-infra.md)
 - **CI/CD from commit to production** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/t2s-release.yml`](.github/workflows/t2s-release.yml)
 - **Autoscaling GPU workloads** → [`platform/keda/scaledobject-vllm.yaml`](platform/keda/scaledobject-vllm.yaml) + ADR-003
@@ -245,4 +383,3 @@ New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is 
 - **T2S SLOs** → [`observability/slo/t2s-slo.yaml`](observability/slo/t2s-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
 - **T2S queue backlog incident** → [`docs/runbooks/t2s-queue-backlog.md`](docs/runbooks/t2s-queue-backlog.md)
 - **Pushing back on research asks** → [`docs/onboarding/operating-principles.md`](docs/onboarding/operating-principles.md) (Principle 3)
-- **Senior DevOps role alignment (JD → repo evidence)** → [`docs/role-alignment.md`](docs/role-alignment.md)

@@ -2,7 +2,27 @@
   "permissions": {
     "allow": [
       "Bash(echo \"---exit $?\")",
-      "Bash(chmod +x /Users/emmanuelnaweji/k8s-ai-ml-infra/scripts/python/*.py)"
+      "Bash(chmod +x /Users/emmanuelnaweji/k8s-ai-ml-infra/scripts/python/*.py)",
+      "Bash(npm --version)",
+      "Bash(ls node_modules)",
+      "Bash(lsof -nP -iTCP:3000 -sTCP:LISTEN)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"T2S on 3010: HTTP %{http_code}\\\\n\" http://localhost:3010/)",
+      "Bash(curl -s http://localhost:3010/api/healthz)",
+      "Bash(command -v cloudflared)",
+      "Bash(cloudflared --version)",
+      "Bash(echo \"already installed: $\\(cloudflared --version 2>&1)",
+      "Bash(curl -s -o /dev/null -w \"t2s-ui on 3010: HTTP %{http_code}\\\\n\" http://localhost:3010/api/healthz)",
+      "Bash(echo \"--- tunnel log ---\"; tail -30 /tmp/t2s-tunnel.log; echo \"--- process check ---\"; pgrep -lf cloudflared || echo \"tunnel process not running\")",
+      "Read(//private/tmp/**)",
+      "Bash(curl -s -o /dev/null -w 'HTTP %{http_code} · %{time_total}s\\\\n' --max-time 10 https://ver-pillow-info-give.trycloudflare.com/)",
+      "Bash(curl -s --max-time 10 https://ver-pillow-info-give.trycloudflare.com/api/healthz)",
+      "Bash(mkdir -p /Users/emmanuelnaweji/k8s-ai-ml-infra/workloads/t2s-platform/ui/app/lab/runs/\\\\[id\\\\])",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"/lab/launch  → HTTP %{http_code}\\\\n\" --max-time 15 http://localhost:3010/lab/launch)"
+    ],
+    "additionalDirectories": [
+      "/Users/emmanuelnaweji/k8s-ai-ml-infra/workloads/t2s-platform/ui/app/lab/runs"
     ]
   }
 }

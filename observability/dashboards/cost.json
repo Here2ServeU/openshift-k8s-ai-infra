@@ -1,9 +1,11 @@
 {
-  "title": "Cost — OpenCost + model economics",
-  "uid": "cost",
-  "tags": ["cost", "finops", "opencost"],
+  "title": "T2S · Cost — OpenCost + model economics",
+  "uid": "t2s-cost",
+  "tags": ["t2s", "cost", "finops", "opencost"],
+  "description": "T2S — Trust to Scale. Per-workload cost allocation joined to OpenCost and cloud-provider explorer feeds. Used in the cost-spike runbook and weekly cost reviews.",
   "schemaVersion": 39,
   "refresh": "5m",
+  "style": "dark",
   "time": { "from": "now-7d", "to": "now" },
   "panels": [
     {

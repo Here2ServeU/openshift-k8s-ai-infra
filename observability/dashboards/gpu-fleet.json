@@ -1,9 +1,11 @@
 {
-  "title": "GPU Fleet",
-  "uid": "gpu-fleet",
-  "tags": ["gpu", "fleet", "dcgm"],
+  "title": "T2S · GPU Fleet",
+  "uid": "t2s-gpu-fleet",
+  "tags": ["t2s", "gpu", "fleet", "dcgm"],
+  "description": "T2S — Trust to Scale. Accelerator-fleet utilization, MIG slice occupancy, and per-node spot economics. Read alongside the cost dashboard for downsizing decisions.",
   "schemaVersion": 39,
   "refresh": "30s",
+  "style": "dark",
   "time": { "from": "now-3h", "to": "now" },
   "panels": [
     {
@@ -32,9 +34,9 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green",  "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red",    "value": 3 }
+              { "color": "#4ADE80",  "value": null },
+              { "color": "#FBBF24", "value": 1 },
+              { "color": "#F87171",    "value": 3 }
             ]
           }
         }
