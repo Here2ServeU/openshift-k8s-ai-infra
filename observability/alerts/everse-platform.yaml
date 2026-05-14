@@ -1,0 +1,186 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: everse-platform-alerts
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+    app.kubernetes.io/part-of: everse-platform
+spec:
+  groups:
+    - name: everse.platform.queue
+      rules:
+        - alert: EverseEvalQueueAgeHigh
+          expr: |
+            max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="everse-eval"}) > 900
+          for: 10m
+          labels:
+            severity: page
+            service: everse-worker
+          annotations:
+            summary: Everse eval jobs are waiting too long
+            description: Oldest SQS message has been waiting more than 15 minutes.
+            runbook_url: https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md
+        - alert: EverseDeadLetterQueueGrowing
+          expr: |
+            increase(aws_sqs_approximate_number_of_messages_visible{queue_name="everse-eval-dlq"}[15m]) > 0
+          for: 5m
+          labels:
+            severity: page
+            service: everse-worker
+          annotations:
+            summary: Everse eval jobs are landing in the DLQ
+            description: Failed evaluation jobs require triage before retries hide the failure pattern.
+            runbook_url: https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md
+        - alert: EverseQueueBacklogGrowing
+          expr: |
+            deriv(aws_sqs_approximate_number_of_messages_visible{queue_name="everse-eval"}[30m]) > 5
+          for: 20m
+          labels:
+            severity: ticket
+            service: everse-worker
+          annotations:
+            summary: Eval queue is growing faster than it's draining
+            description: Backlog has been growing for 20+ minutes. Investigate capacity before paging fires.
+            runbook_url: https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md
+
+    - name: everse.platform.api
+      rules:
+        - alert: EverseApiLatencyBurn
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_server_duration_seconds_bucket{service_name="everse-api"}[5m]))
+            ) > 0.75
+          for: 10m
+          labels:
+            severity: ticket
+            service: everse-api
+          annotations:
+            summary: Everse API p95 latency is above budget
+            description: API p95 latency is above 750ms for 10 minutes.
+        - alert: EverseApiErrorRateHigh
+          expr: |
+            sum(rate(http_server_requests_total{service_name="everse-api",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(http_server_requests_total{service_name="everse-api"}[5m])), 1)
+            > 0.02
+          for: 5m
+          labels:
+            severity: page
+            service: everse-api
+          annotations:
+            summary: Everse API 5xx rate above 2%
+            description: User-facing API is returning 5xx for more than 2% of requests.
+
+    - name: everse.platform.workers
+      rules:
+        - alert: EverseWorkerCrashLooping
+          expr: |
+            max by (pod) (
+              increase(kube_pod_container_status_restarts_total{namespace="everse",pod=~"everse-worker.*"}[15m])
+            ) > 3
+          for: 5m
+          labels:
+            severity: page
+            service: everse-worker
+          annotations:
+            summary: Everse worker pod is crash-looping
+            description: A worker pod has restarted more than 3 times in 15 minutes.
+        - alert: EverseWorkerOOMKilled
+          expr: |
+            increase(kube_pod_container_status_last_terminated_reason{namespace="everse",reason="OOMKilled"}[15m]) > 0
+          for: 1m
+          labels:
+            severity: page
+            service: everse-worker
+          annotations:
+            summary: Everse worker pod was OOMKilled
+            description: Investigate worker memory ceiling; raise limits or reduce per-pod concurrency.
+        - alert: EverseVoiceCallConcurrencyNearMax
+          expr: |
+            sum(voice_call_active_count) / clamp_min(sum(voice_call_active_max), 1) > 0.85
+          for: 5m
+          labels:
+            severity: ticket
+            service: everse-worker-voice
+          annotations:
+            summary: Voice worker concurrency is approaching capacity
+            description: Active voice calls > 85% of configured max. Scale up before user-facing call failures occur.
+
+    - name: everse.platform.dependencies
+      rules:
+        - alert: EversePostgresReplicationLagHigh
+          expr: |
+            max(pg_replication_lag_seconds{namespace="everse"}) > 60
+          for: 10m
+          labels:
+            severity: ticket
+            service: everse-postgres
+          annotations:
+            summary: Postgres read-replica lag above 60s
+            description: API read paths backed by the replica may serve stale data.
+        - alert: EversePostgresConnectionsHigh
+          expr: |
+            sum(pg_stat_database_numbackends{datname="everse"})
+            /
+            on() min(pg_settings_max_connections)
+            > 0.85
+          for: 10m
+          labels:
+            severity: ticket
+            service: everse-postgres
+          annotations:
+            summary: Postgres connection pool saturating
+            description: Connection usage > 85% of max. Check for leaked connections or scale the pool.
+        - alert: EverseRedisLatencyHigh
+          expr: |
+            histogram_quantile(0.99,
+              sum by (le) (rate(redis_command_duration_seconds_bucket{namespace="everse"}[5m]))
+            ) > 0.05
+          for: 10m
+          labels:
+            severity: ticket
+            service: everse-redis
+          annotations:
+            summary: Redis p99 command latency above 50ms
+            description: Run-status and rate-limit paths may degrade. Check Redis memory + CPU.
+        - alert: EverseS3SlowDownErrors
+          expr: |
+            sum(rate(aws_s3_request_errors_total{bucket=~"everse-.*",error_code="SlowDown"}[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: ticket
+            service: everse-worker
+          annotations:
+            summary: S3 SlowDown responses on Everse buckets
+            description: Request rate may be exceeding the per-prefix S3 quota. Consider sharding the artifact prefix.
+
+    - name: everse.platform.cost
+      rules:
+        - alert: EverseCostPerEvalRunSpike
+          expr: |
+            (
+              sum(increase(everse_eval_run_cost_usd_total[1h]))
+              /
+              clamp_min(sum(increase(everse_eval_runs_completed_total[1h])), 1)
+            )
+            >
+            on() (
+              1.5 *
+              avg_over_time(
+                (
+                  sum(increase(everse_eval_run_cost_usd_total[1h]))
+                  /
+                  clamp_min(sum(increase(everse_eval_runs_completed_total[1h])), 1)
+                )[7d:1h]
+              )
+            )
+          for: 30m
+          labels:
+            severity: ticket
+            service: everse-platform
+          annotations:
+            summary: Cost-per-eval-run is 50% above the 7-day baseline
+            description: Check for a new model tier, a regression in worker efficiency, or runaway retries.
+            runbook_url: https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/cost-spike.md

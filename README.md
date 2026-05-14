@@ -18,6 +18,7 @@ The same manifests deploy locally on `kind` (for development and demos), on AWS 
 | **Scaling & reliability** | KEDA on queue depth + GPU util; Karpenter (AWS) / GKE node auto-provisioning for spot GPU bursts; PDBs + topology spread; multi-burn-rate SLO alerts |
 | **Cost optimization** | Spot GPU node pools, scale-to-zero for off-hours dev models, request-coalescing at gateway, FinOps tags on every resource, OpenCost dashboards |
 | **End-to-end LLM workflows** | vLLM serving, KServe for traditional ML, model registry (S3/GCS, content-addressed), Argo Workflows for eval (`lm-eval-harness`), inference gateway with routing/guardrails |
+| **Everse-style platform ops** | React/Node UI + Python API + queue-backed evaluation workers, SQS/KEDA scaling, Postgres/Redis/S3 dependencies, service-group promotion |
 
 ---
 
@@ -112,10 +113,12 @@ make platform-up
 ```
 .
 ├── README.md                       # you are here
+├── .github/workflows/              # Image build/sign, Terraform checks, service/model promotion
 ├── Makefile                        # top-level entry points (local-up, demo, load-test, ...)
 ├── docs/
 │   ├── architecture.md             # detailed system design
 │   ├── decisions/                  # ADRs — why we chose X over Y
+│   ├── interview/                  # role-specific talk tracks and prep notes
 │   ├── runbooks/                   # oncall playbooks for common incidents
 │   └── diagrams/
 ├── terraform/
@@ -144,13 +147,14 @@ make platform-up
 │   ├── kserve-models/              # traditional ML inference services
 │   ├── inference-gateway/          # Envoy-based routing + guardrails
 │   ├── eval-platform/              # lm-eval-harness as Argo Workflow
+│   ├── everse-platform/            # UI/API/worker service group for AI-agent evals
 │   ├── data-pipeline/              # high-throughput Ray/Argo ETL example
 │   └── model-registry/             # S3/GCS-backed registry + signing
 ├── observability/
 │   ├── dashboards/                 # Grafana JSON — LLM serving, GPU fleet, cost, SLO
 │   ├── alerts/                     # PrometheusRule CRDs (multi-burn-rate)
 │   └── slo/                        # Sloth SLO definitions
-├── ci/.github/workflows/           # GitHub Actions for terraform, helm, image, model release
+├── ci/                             # policy configuration used by GitHub Actions
 └── scripts/                        # demo.sh, load-test.sh, cost-report.sh
 ```
 
@@ -206,10 +210,24 @@ Be honest with yourself in interviews — call out what's stubbed vs. real:
 
 ## Interview talking points
 
+This repo doubles as the working portfolio behind the Senior DevOps interview for the Everse platform team. The [`docs/interview/`](docs/interview/) folder is the talk track:
+
+- [`everse-devops-playbook.md`](docs/interview/everse-devops-playbook.md) — 60-second pitch, top-3 responsibility mapping, likely questions with strong answers.
+- [`first-90-days.md`](docs/interview/first-90-days.md) — the 30/60/90 plan for the role.
+- [`senior-tradeoffs.md`](docs/interview/senior-tradeoffs.md) — ten architectural calls with reasoning and the conditions that would flip them.
+- [`behavioral-stories.md`](docs/interview/behavioral-stories.md) — STAR-format stories mapped to the seniority signals in the brief.
+- [`voice-agent-infra.md`](docs/interview/voice-agent-infra.md) — how the voice/text agent simulation layer sits on Kubernetes.
+- [`scaling-10x.md`](docs/interview/scaling-10x.md) — concrete plan for "10× eval throughput next quarter."
+
 Things in this repo that map to common interview questions:
 
+- **"How would you run Everse on Kubernetes?"** → [`workloads/everse-platform/`](workloads/everse-platform/) + [`docs/interview/everse-devops-playbook.md`](docs/interview/everse-devops-playbook.md) + [ADR-008](docs/decisions/008-everse-service-group.md)
+- **"How would you own CI/CD from commit to production?"** → [`.github/workflows/service-image-ci.yml`](.github/workflows/service-image-ci.yml) + [`.github/workflows/everse-release.yml`](.github/workflows/everse-release.yml)
 - **"How would you autoscale GPU workloads?"** → [`platform/keda/scaledobject-vllm.yaml`](platform/keda/scaledobject-vllm.yaml) + ADR-003
-- **"How would you do a canary deploy of a model?"** → [`workloads/llm-serving/rollout.yaml`](workloads/llm-serving/rollout.yaml) (Argo Rollout with SLO-gated analysis template)
+- **"How would you do a canary deploy of a model?"** → [`workloads/llm-serving/helm/templates/rollout.yaml`](workloads/llm-serving/helm/templates/rollout.yaml) (Argo Rollout with SLO-gated analysis template)
 - **"How do you observe LLM serving specifically?"** → [`observability/dashboards/llm-serving.json`](observability/dashboards/llm-serving.json) and ADR-005
 - **"How do you keep cloud costs in check on GPU fleets?"** → ADR-002 + [`docs/runbooks/cost-spike.md`](docs/runbooks/cost-spike.md)
-- **"Walk me through a model-release pipeline."** → [`ci/.github/workflows/model-release.yml`](ci/.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md)
+- **"Walk me through a model-release pipeline."** → [`.github/workflows/model-release.yml`](.github/workflows/model-release.yml) + [`workloads/model-registry/README.md`](workloads/model-registry/README.md)
+- **"What are the Everse SLOs?"** → [`observability/slo/everse-slo.yaml`](observability/slo/everse-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
+- **"How would you handle an Everse queue backlog incident?"** → [`docs/runbooks/everse-queue-backlog.md`](docs/runbooks/everse-queue-backlog.md)
+- **"Tell me about a time you pushed back on a research team."** → [`docs/interview/behavioral-stories.md`](docs/interview/behavioral-stories.md) (Story 3)

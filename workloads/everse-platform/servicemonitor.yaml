@@ -1,0 +1,44 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: everse-api
+  namespace: everse
+  labels:
+    app.kubernetes.io/part-of: everse-platform
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: everse-api
+  namespaceSelector:
+    matchNames:
+      - everse
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service_group
+          replacement: everse
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: everse-worker
+  namespace: everse
+  labels:
+    app.kubernetes.io/part-of: everse-platform
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: everse-worker
+  namespaceSelector:
+    matchNames:
+      - everse
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service_group
+          replacement: everse

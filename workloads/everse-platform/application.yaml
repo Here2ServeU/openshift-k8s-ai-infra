@@ -1,0 +1,29 @@
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: everse-platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/YOUR-ORG/k8s-ai-ml-infra
+    targetRevision: main
+    path: workloads/everse-platform
+    directory:
+      recurse: true
+      exclude: application.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: everse
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -1,0 +1,116 @@
+---
+# Sloth-style SLO definitions for the Everse product surface.
+#
+# Apply via:  sloth generate -i observability/slo/everse-slo.yaml \
+#               -o observability/alerts/everse-slo-burn.generated.yaml
+#
+# SLO menu:
+#   1. everse-api-availability  — API requests that don't return 5xx
+#   2. everse-api-latency       — API p95 < 500ms
+#   3. everse-queue-freshness   — % of eval messages picked up within 5min
+#   4. everse-eval-success      — % of submitted runs completing without
+#                                 worker error (DLQ landings count as failures)
+#
+# Window for all SLOs is 30d rolling, configurable via Sloth.
+version: "prometheus/v1"
+service: "everse-platform"
+labels:
+  team: "platform"
+  product: "everse"
+slos:
+
+  - name: "everse-api-availability"
+    objective: 99.9
+    description: "% of everse-api requests returning non-5xx"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_requests_total{service_name="everse-api",status=~"5.."}[{{.window}}]))
+        total_query: |
+          sum(rate(http_server_requests_total{service_name="everse-api"}[{{.window}}]))
+    alerting:
+      name: EverseApiAvailabilityErrorBudgetBurn
+      labels:
+        category: availability
+        product: everse
+      annotations:
+        summary: "everse-api availability SLO error-budget burn"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "everse-api-latency"
+    objective: 95
+    description: "95% of everse-api requests complete in under 500ms"
+    sli:
+      events:
+        error_query: |
+          sum(rate(http_server_duration_seconds_bucket{service_name="everse-api",le="+Inf"}[{{.window}}])) -
+          sum(rate(http_server_duration_seconds_bucket{service_name="everse-api",le="0.5"}[{{.window}}]))
+        total_query: |
+          sum(rate(http_server_duration_seconds_bucket{service_name="everse-api",le="+Inf"}[{{.window}}]))
+    alerting:
+      name: EverseApiLatencyErrorBudgetBurn
+      labels:
+        category: latency
+        product: everse
+      annotations:
+        summary: "everse-api p95 latency SLO error-budget burn"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "everse-queue-freshness"
+    objective: 99
+    description: "% of SQS eval messages where oldest-message-age stayed below 5 minutes"
+    sli:
+      events:
+        # We treat each scrape interval as one "event"; bad events are intervals
+        # where the oldest message exceeded the 5-min freshness budget.
+        error_query: |
+          sum_over_time(
+            (max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="everse-eval"}) > bool 300)[{{.window}}:30s]
+          )
+        total_query: |
+          count_over_time(
+            (max(aws_sqs_approximate_age_of_oldest_message_seconds{queue_name="everse-eval"}))[{{.window}}:30s]
+          )
+    alerting:
+      name: EverseQueueFreshnessErrorBudgetBurn
+      labels:
+        category: throughput
+        product: everse
+      annotations:
+        summary: "Eval queue freshness SLO error-budget burn"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }
+
+  - name: "everse-eval-success"
+    objective: 99
+    description: "% of submitted eval runs completing without landing in the DLQ"
+    sli:
+      events:
+        error_query: |
+          sum(rate(everse_eval_runs_failed_total[{{.window}}]))
+        total_query: |
+          sum(rate(everse_eval_runs_completed_total[{{.window}}])) +
+          sum(rate(everse_eval_runs_failed_total[{{.window}}]))
+    alerting:
+      name: EverseEvalSuccessErrorBudgetBurn
+      labels:
+        category: quality
+        product: everse
+      annotations:
+        summary: "Eval run success rate SLO error-budget burn"
+        runbook_url: "https://github.com/YOUR-ORG/k8s-ai-ml-infra/blob/main/docs/runbooks/everse-queue-backlog.md"
+      page_alert:
+        labels: { severity: critical }
+      ticket_alert:
+        labels: { severity: warning }

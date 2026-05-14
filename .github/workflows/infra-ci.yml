@@ -1,0 +1,77 @@
+---
+name: infra-ci
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - "platform/**"
+      - "workloads/**"
+      - "observability/**"
+      - ".github/workflows/infra-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - "platform/**"
+      - "workloads/**"
+      - "observability/**"
+
+permissions:
+  contents: read
+  id-token: write
+  security-events: write
+
+jobs:
+  terraform:
+    name: terraform
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud: [aws, gcp, azure]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Format
+        run: terraform -chdir=terraform/${{ matrix.cloud }} fmt -recursive -check
+      - name: Init
+        run: terraform -chdir=terraform/${{ matrix.cloud }} init -backend=false
+      - name: Validate
+        run: terraform -chdir=terraform/${{ matrix.cloud }} validate
+
+  kubernetes-policy:
+    name: kubernetes-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: instrumenta/kubeval-action@master
+        with:
+          files: workloads,platform,observability
+      - name: Polaris audit
+        uses: fairwindsops/polaris/.github/actions/polaris@master
+        with:
+          version: 9.3.0
+          audit-path: workloads
+          config: ci/polaris.yaml
+
+  security-scan:
+    name: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif

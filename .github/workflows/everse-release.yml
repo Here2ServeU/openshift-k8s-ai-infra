@@ -1,0 +1,71 @@
+---
+name: everse-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service to release
+        required: true
+        type: choice
+        options: [everse-api, everse-worker, everse-ui]
+      image_tag:
+        description: Immutable image tag or digest
+        required: true
+      environment:
+        description: Promotion target
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  promote:
+    name: promote ${{ inputs.service }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sigstore/cosign-installer@v3
+      - name: Verify image signature
+        run: cosign verify ghcr.io/your-org/${{ inputs.service }}:${{ inputs.image_tag }}
+      - name: Patch manifest image
+        uses: mikefarah/yq@v4.44.3
+        with:
+          cmd: |
+            yq -i '
+              (.. | select(tag == "!!map" and has("image") and
+              (.image | test("^ghcr.io/your-org/${{ inputs.service }}:"))) | .image) =
+              "ghcr.io/your-org/${{ inputs.service }}:${{ inputs.image_tag }}"
+            ' workloads/everse-platform/*.yaml
+      - name: Open promotion PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: promote/${{ inputs.environment }}/${{ inputs.service }}-${{ inputs.image_tag }}
+          title: "Promote ${{ inputs.service }} to ${{ inputs.environment }}"
+          commit-message: "Promote ${{ inputs.service }} to ${{ inputs.environment }}"
+          body: |
+            Promotes `${{ inputs.service }}` to `${{ inputs.environment }}`.
+
+            Release controls:
+            - Image signature verified with cosign.
+            - Argo CD applies the manifest after merge.
+            - Argo Rollouts gates API/UI promotion on canary metrics.
+            - Worker safety is controlled by KEDA queue backlog and DLQ alerts.
+
+  post-promote-smoke:
+    name: post-promote-smoke
+    needs: promote
+    if: inputs.environment != 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Submit smoke eval
+        run: |
+          echo "argo submit --from workflowtemplate/agent-simulation-smoke environment=${{ inputs.environment }}"
+          echo "In production this uses OIDC to reach the Falcon/EKS API server."

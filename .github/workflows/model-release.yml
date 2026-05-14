@@ -1,0 +1,57 @@
+---
+name: model-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: Model name
+        required: true
+      model_digest:
+        description: Content-addressed model digest
+        required: true
+      baseline_model:
+        description: Baseline for evaluation
+        required: true
+        default: gpt-4o-mini
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
+
+jobs:
+  validate-and-promote:
+    name: validate model artifact
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: sigstore/cosign-installer@v3
+      - name: Download model signature and manifest
+        run: |
+          aws s3 cp "s3://models/verified/${{ inputs.model_name }}/${{ inputs.model_digest }}" /tmp/model-manifest.json
+          aws s3 cp "s3://models/verified/${{ inputs.model_name }}/${{ inputs.model_digest }}.sig" /tmp/model-manifest.sig
+      - name: Verify model artifact signature
+        run: |
+          cosign verify-blob \
+            --signature /tmp/model-manifest.sig \
+            /tmp/model-manifest.json
+      - name: Patch model digest
+        uses: mikefarah/yq@v4.44.3
+        with:
+          cmd: |
+            yq -i '.model.name = "${{ inputs.model_name }}" | .model.digest = "${{ inputs.model_digest }}"' \
+              workloads/llm-serving/helm/values.yaml
+      - name: Open model promotion PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: promote/model/${{ inputs.model_name }}-${{ inputs.model_digest }}
+          title: "Promote model ${{ inputs.model_name }}"
+          commit-message: "Promote model ${{ inputs.model_name }}"
+          body: |
+            Promotes `${{ inputs.model_name }}` by immutable digest `${{ inputs.model_digest }}`.
+
+            Rollout gate:
+            - vLLM canary receives weighted traffic.
+            - `llm-eval` workflow publishes `model_eval_winrate`.
+            - Argo Rollouts compares canary error rate, TTFT, and eval win rate.

@@ -1,0 +1,65 @@
+---
+name: service-image-ci
+
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: Service image to build
+        required: true
+        type: choice
+        options: [everse-api, everse-worker, everse-ui]
+      dockerfile:
+        description: Dockerfile path
+        required: true
+        default: Dockerfile
+
+permissions:
+  contents: read
+  id-token: write
+  packages: write
+  security-events: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_OWNER: your-org
+
+jobs:
+  build-scan-sign:
+    name: build scan sign
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./services/${{ inputs.service }}
+          file: ./services/${{ inputs.service }}/${{ inputs.dockerfile }}
+          push: true
+          provenance: true
+          sbom: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ inputs.service }}:${{ github.sha }}
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ inputs.service }}:${{ github.sha }}
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign image
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ inputs.service }}@${{ steps.build.outputs.digest }}

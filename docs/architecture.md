@@ -6,7 +6,7 @@ This is the long-form companion to the [top-level README](../README.md). It walk
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Workloads          vLLM   KServe   Inference GW   Eval   Data Pipe   │
+│ Workloads          vLLM   KServe   Everse UI/API/Worker   Data Pipe  │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Platform           ArgoCD  Rollouts  KEDA  Karpenter  GPU Operator   │
 │                    Prom/Loki/Tempo  OTel  cert-manager  ESO  Argo WF │
@@ -26,6 +26,16 @@ This is the long-form companion to the [top-level README](../README.md). It walk
 5. **OpenTelemetry**: the gateway emits a server span; vLLM emits a child span with `gen_ai.*` attributes (input tokens, output tokens, model, latency to first token).
 6. Metrics scraped by Prometheus on `:8000/metrics` (vLLM exposes `vllm_pending_requests`, `vllm_running_requests`, `vllm_gpu_cache_usage_perc`, TTFT, TPOT histograms).
 
+## Everse evaluation path
+
+1. A user creates or re-runs an agent evaluation suite in `everse-ui`.
+2. `everse-api` validates the suite, records run metadata in Postgres, stores large fixtures in S3, and enqueues evaluation jobs to SQS.
+3. `everse-worker` consumes jobs, simulates voice/text personas, calls the inference gateway or external model endpoints, and writes transcripts, audio/video artifacts, and result summaries back to S3/Postgres.
+4. Redis holds short-lived run state, idempotency locks, and rate-limit counters.
+5. OpenTelemetry traces connect API requests, queue jobs, worker spans, LLM calls, S3 uploads, and Postgres writes under one run ID.
+
+The UI/API/worker manifests live in [`workloads/everse-platform/`](../workloads/everse-platform/). The important design choice is that the services promote together as a product surface, while each component scales on its own pressure signal: API latency/CPU, worker queue depth and oldest-message age, and LLM serving GPU pressure. The full reasoning — one namespace, two worker tiers (text vs. voice), canary on API/UI but rolling on workers — is captured in [ADR-008](decisions/008-everse-service-group.md). The voice-tier specifics are in [`docs/interview/voice-agent-infra.md`](interview/voice-agent-infra.md), and the product-level SLOs (API availability, API latency, queue freshness, eval success rate) live in [`observability/slo/everse-slo.yaml`](../observability/slo/everse-slo.yaml).
+
 ## Autoscaling — workload and node
 
 We use a two-tier scaling strategy:
@@ -35,6 +45,8 @@ We use a two-tier scaling strategy:
 **Node (GPU instance count)**: Karpenter on AWS (NodePool for `g5.xlarge` + `g5.2xlarge` spot, with on-demand fallback). On GCP, GKE node auto-provisioning serves the same role. Both can stand up a new GPU node in ~60-90s, vs. ~3-5 min for cluster-autoscaler hitting an ASG.
 
 Why two tiers: pod-level autoscaling reacts in seconds but only within the existing node capacity. Node-level reacts in minutes but adds capacity. Together you can handle a 10× burst without either over-provisioning or 500ing.
+
+For Everse workers, the same principle applies without GPUs: KEDA scales worker pods on SQS backlog and oldest-message age, then the cluster autoscaler adds batch nodes if the pending pods cannot schedule. Queue age is the user-facing signal; queue length is only the volume signal.
 
 ## Model artifact pipeline
 
