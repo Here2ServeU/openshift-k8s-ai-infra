@@ -1,0 +1,27 @@
+{
+  "type": "Prerender",
+  "expiration": false,
+  "group": 7,
+  "bypassToken": "0bf12c0a80652e0305fae6fce3f16970",
+  "experimentalBypassFor": [
+    {
+      "type": "header",
+      "key": "Next-Action"
+    },
+    {
+      "type": "header",
+      "key": "content-type",
+      "value": "multipart/form-data;.*"
+    }
+  ],
+  "fallback": {
+    "type": "FileFsRef",
+    "mode": 33188,
+    "fsPath": "personas.prerender-fallback.html"
+  },
+  "initialHeaders": {
+    "x-next-cache-tags": "_N_T_/layout,_N_T_/personas/layout,_N_T_/personas/page,_N_T_/personas",
+    "vary": "RSC, Next-Router-State-Tree, Next-Router-Prefetch"
+  },
+  "allowQuery": []
+}
