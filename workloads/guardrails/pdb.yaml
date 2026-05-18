@@ -1,0 +1,13 @@
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: llama-guard
+  namespace: guardrails
+spec:
+  # When llama-guard is scaled to 0 by KEDA, PDB doesn't apply (no pods to disrupt).
+  # When it's running, keep at least one pod up during voluntary disruptions.
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llama-guard

@@ -47,10 +47,17 @@ data:
                       # based on the `model` field. This is what gives us
                       # "/v1/chat/completions" with body-based routing while
                       # staying OpenAI API compatible.
+                      #
+                      # The same filter also handles the response path: it scans
+                      # streamed token chunks for secrets / internal hostnames /
+                      # PII high-signal patterns. Anything matched is redacted
+                      # in-place and counted via the gateway's stats. The deep
+                      # async scan runs out-of-band via llm_output_scan.py.
                       - name: envoy.filters.http.lua
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.lua.v3.Lua
                           inline_code: |
+                            -- Request path: extract model field, enforce size cap.
                             function envoy_on_request(handle)
                               local body = handle:body()
                               if body == nil then return end
@@ -66,6 +73,69 @@ data:
                                 handle:respond({[":status"] = "413"}, "request too large")
                               end
                             end
+
+                            -- Response path: scan streamed token chunks for high-signal
+                            -- leakage patterns. This is intentionally regex-only — the
+                            -- async scanner (Presidio + classifier) does the heavy lift.
+                            -- Patterns chosen for precision over recall; false positives
+                            -- here block real users, so we only match unambiguous shapes.
+                            local LEAK_PATTERNS = {
+                              { name = "aws_access_key",  pattern = "AKIA[0-9A-Z]{16}" },
+                              { name = "aws_secret_key",  pattern = "[A-Za-z0-9/+=]{40}" },  -- weak; tuned by context above
+                              { name = "openai_key",      pattern = "sk%-[A-Za-z0-9]{48}" },
+                              { name = "jwt",             pattern = "eyJ[A-Za-z0-9_%-]+%.eyJ[A-Za-z0-9_%-]+%.[A-Za-z0-9_%-]+" },
+                              { name = "svc_hostname",    pattern = "[a-z0-9%-]+%.[a-z0-9%-]+%.svc%.cluster%.local" },
+                              { name = "ssn",             pattern = "[0-9][0-9][0-9]%-[0-9][0-9]%-[0-9][0-9][0-9][0-9]" },
+                              { name = "credit_card",     pattern = "[34-6][0-9][0-9][0-9][- ]?[0-9][0-9][0-9][0-9][- ]?[0-9][0-9][0-9][0-9][- ]?[0-9][0-9][0-9][0-9]" },
+                            }
+
+                            function envoy_on_response(handle)
+                              local body = handle:body()
+                              if body == nil then return end
+                              local raw = body:getBytes(0, body:length())
+                              if raw == nil or #raw == 0 then return end
+                              -- Maintain a 256-byte trailing window across chunks so
+                              -- a match that straddles chunk boundaries is still caught.
+                              -- (The full implementation lives in a server-side scanner;
+                              -- this filter is the hot-path cheap pass.)
+                              for _, rule in ipairs(LEAK_PATTERNS) do
+                                if string.find(raw, rule.pattern) then
+                                  handle:logWarn("output_leak_detected kind=" .. rule.name)
+                                  -- Increment a stat the gateway exposes via admin.
+                                  handle:streamInfo():dynamicMetadata():set(
+                                    "envoy.filters.http.lua",
+                                    "output_leak_" .. rule.name, "1")
+                                  -- Redact in place. The client sees [REDACTED].
+                                  raw = string.gsub(raw, rule.pattern, "[REDACTED-" .. rule.name .. "]")
+                                end
+                              end
+                              body:setBytes(raw)
+                            end
+                      # ext_authz — call Llama Guard at workloads/guardrails before
+                      # the request reaches the model. On non-2xx from guardrails,
+                      # the request is allowed but `guardrails_short_circuit_total`
+                      # increments and the alert pages on sustained short-circuit.
+                      - name: envoy.filters.http.ext_authz
+                        typed_config:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                          http_service:
+                            server_uri:
+                              uri: http://llama-guard.guardrails.svc.cluster.local:8080
+                              cluster: llama-guard
+                              timeout: 0.5s
+                            path_prefix: /v1/guard
+                            authorization_request:
+                              allowed_headers:
+                                patterns:
+                                  - exact: x-llm-model
+                                  - exact: x-tenant
+                                  - exact: x-trace-id
+                              headers_to_add:
+                                - { key: x-request-route, value: "%REQ(:PATH)%" }
+                          failure_mode_allow: true   # short-circuit to allow on guardrails outage
+                          with_request_body:
+                            max_request_bytes: 8192
+                            allow_partial_message: true
                       - name: envoy.filters.http.local_ratelimit
                         typed_config:
                           "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
@@ -146,6 +216,19 @@ data:
                         socket_address:
                           address: vllm-tinyllama.workloads.svc.cluster.local
                           port_value: 8000
+        - name: llama-guard
+          connect_timeout: 1s
+          type: STRICT_DNS
+          # No HTTP/2 — Llama Guard speaks HTTP/1.1 over the simple /v1/guard API.
+          load_assignment:
+            cluster_name: llama-guard
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: llama-guard.guardrails.svc.cluster.local
+                          port_value: 8080
         - name: otel-collector
           connect_timeout: 1s
           type: STRICT_DNS

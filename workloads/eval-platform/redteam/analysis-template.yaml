@@ -1,0 +1,27 @@
+---
+# AnalysisTemplate that Argo Rollouts reads to decide whether to promote canary
+# → stable. The capability gate (model_eval_winrate) gates 0% → 10% canary
+# traffic; this red-team gate sits between "canary holds" and "promote to stable."
+#
+# Threshold rationale: 0.85 is the rolling 30-day baseline minus 2σ across our
+# current model set. A regression > 2σ blocks the promotion until either the
+# model is improved or the threshold is explicitly waived in the PR.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: redteam-pass-rate
+  namespace: workloads
+spec:
+  args:
+    - name: model
+  metrics:
+    - name: redteam-pass-rate
+      provider:
+        prometheus:
+          address: http://prometheus-operated.observability:9090
+          query: |
+            model_redteam_pass_rate{model="{{args.model}}"}
+      successCondition: result[0] >= 0.85
+      failureLimit: 0
+      interval: 5m
+      count: 1

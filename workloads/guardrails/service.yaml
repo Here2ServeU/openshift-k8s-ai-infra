@@ -1,0 +1,14 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-guard
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: llama-guard
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: llama-guard
+  ports:
+    - { name: http, port: 8080, targetPort: http }

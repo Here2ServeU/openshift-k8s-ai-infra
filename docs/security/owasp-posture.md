@@ -47,7 +47,8 @@ In addition: `gitleaks` for committed credentials, `semgrep` with the `p/kuberne
 ## What we explicitly do *not* claim
 
 - This repo is not SOC 2 / HIPAA / ISO 27001 ready out of the box. Those frameworks need policy, vendor-management, and personnel controls this repo doesn't model.
-- The OWASP MASVS / LLM Top 10 controls overlap with this list but aren't fully covered — prompt-injection canaries are the only piece here. A separate doc covers the LLM-specific posture; pointer to be added.
+- The OWASP MASVS controls overlap with this list but aren't fully covered (this is a server-side platform, not a mobile surface).
+- The OWASP **LLM Top 10** mapping lives in its own doc: [`llm-security-posture.md`](llm-security-posture.md). That doc covers the input guardrail (Llama Guard 2), the response-path output scanner, and the Garak red-team pipeline. The architecture rationale and Prisma AIRS / Lakera / Robust Intelligence swap path are in [ADR-009](../decisions/009-ai-runtime-security.md).
 - Penetration testing is out of scope. The expectation is an annual third-party pen-test on the cluster's externally exposed surface, plus continuous internal scanning above.
 
 ## Audit trail

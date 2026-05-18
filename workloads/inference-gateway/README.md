@@ -20,10 +20,18 @@ Without one, every client needs to know "Llama-3 lives at vllm-llama3-8b.workloa
 - **Lua filter**: simple, fast, no separate sidecar. The body-based routing rule is 8 lines of Lua.
 - **gRPC**: when we add structured inference (predict/explain via KServe v2 gRPC), Envoy is the same gateway. No second proxy.
 
+## AI runtime security at the gateway
+
+Two integration points now live in the Envoy config:
+
+- **Input guardrail** — `ext_authz` filter calls Llama Guard at [`workloads/guardrails/`](../guardrails/) before the request reaches the model. `failure_mode_allow: true` plus the `guardrails_short_circuit_total` metric and alert is how we keep a guardrails outage from black-holing all model traffic while still paging on sustained unprotected serving.
+- **Output scanner** — Lua filter on the response path scans streamed token chunks for AWS/OpenAI keys, JWTs, internal service hostnames, SSN, and credit-card shapes. Matches are redacted in place; the deep async scan happens out-of-band in [`scripts/python/llm_output_scan.py`](../../scripts/python/llm_output_scan.py).
+
+The design (why two layers, why regex on the hot path and a model in the async path, why `failure_mode_allow`) is in [ADR-009](../../docs/decisions/009-ai-runtime-security.md).
+
 ## What's NOT here (yet)
 
 - **JWT auth** — Envoy's `jwt_authn` filter is the right place. Pointed to a JWKS URL it just works. Skipped for the demo to keep the auth story stub'd out (call this out in interviews).
-- **Prompt guardrails** — e.g., Llama Guard 2 or NeMo Guardrails as a sidecar. Easy to slot in.
 - **Cost tagging** — emit `gen_ai.usage.input_tokens` / `output_tokens` as a metric so the cost dashboard can divide by tenant. The OTel exporter does this; the Lua filter pulls token counts from vLLM's streaming response body. Sketch in the ADR.
 
 ## Local demo

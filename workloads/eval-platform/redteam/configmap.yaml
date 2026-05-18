@@ -1,0 +1,21 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garak-generator-config
+  namespace: workloads
+data:
+  # Garak generator config — points it at our OpenAI-compatible gateway with
+  # streaming disabled (Garak inspects full response bodies) and a tight
+  # per-request timeout so a hanging probe doesn't stall the whole sweep.
+  generator.json: |
+    {
+      "OpenAICompatible": {
+        "base_url_env": "OPENAI_API_BASE",
+        "api_key_env": "OPENAI_API_KEY",
+        "stream": false,
+        "temperature": 0.7,
+        "max_tokens": 256,
+        "request_timeout": 30
+      }
+    }

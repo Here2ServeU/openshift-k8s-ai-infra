@@ -1,0 +1,195 @@
+---
+# WorkflowTemplate — runs Garak against a candidate model endpoint, computes
+# pass rates per probe family, and pushes the result to Prometheus pushgateway
+# so the *promote-to-stable* gate (one tier later than canary) can read it.
+#
+# Capability eval (lm-eval-harness) runs on every release and gates the canary.
+# Red-team eval (this workflow) runs on every release for a sampled probe set,
+# and nightly for the full sweep. Red-team failure blocks promotion to stable,
+# not canary — see ADR-009 §5.
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: llm-redteam
+  namespace: workloads
+spec:
+  entrypoint: redteam
+  arguments:
+    parameters:
+      - name: candidate-model
+      - name: candidate-endpoint
+        value: "http://inference-gateway.workloads:8080/v1"
+      - name: probe-families
+        # Sampled set for the per-release gate. Full sweep adds: lmrc, atkgen,
+        # encoding, latentinjection, divergence — and takes 30–90 min.
+        value: "promptinject,dan,goodside"
+      - name: generations
+        value: "10"
+      - name: pushgateway
+        value: "http://prometheus-pushgateway.observability:9091"
+      - name: bucket
+        value: "s3://t2s-redteam-reports"
+
+  templates:
+    - name: redteam
+      dag:
+        tasks:
+          - name: garak
+            template: run-garak
+            arguments:
+              parameters:
+                - { name: model,    value: "{{workflow.parameters.candidate-model}}" }
+                - { name: endpoint, value: "{{workflow.parameters.candidate-endpoint}}" }
+                - { name: probes,   value: "{{workflow.parameters.probe-families}}" }
+                - { name: gens,     value: "{{workflow.parameters.generations}}" }
+          - name: summarize
+            dependencies: [garak]
+            template: summarize-report
+            arguments:
+              parameters:
+                - { name: report-path, value: "{{tasks.garak.outputs.parameters.report}}" }
+          - name: publish
+            dependencies: [summarize]
+            template: push-metric
+            arguments:
+              parameters:
+                - { name: model,        value: "{{workflow.parameters.candidate-model}}" }
+                - { name: pass-rate,    value: "{{tasks.summarize.outputs.parameters.pass-rate}}" }
+                - { name: by-family,    value: "{{tasks.summarize.outputs.parameters.by-family}}" }
+                - { name: pushgateway,  value: "{{workflow.parameters.pushgateway}}" }
+          - name: archive
+            dependencies: [garak]
+            template: archive-report
+            arguments:
+              parameters:
+                - { name: report-path, value: "{{tasks.garak.outputs.parameters.report}}" }
+                - { name: model,       value: "{{workflow.parameters.candidate-model}}" }
+                - { name: bucket,      value: "{{workflow.parameters.bucket}}" }
+
+    - name: run-garak
+      nodeSelector:
+        workload-type: batch
+      inputs:
+        parameters:
+          - name: model
+          - name: endpoint
+          - name: probes
+          - name: gens
+      outputs:
+        parameters:
+          - name: report
+            valueFrom:
+              path: /tmp/report-path
+      container:
+        # Placeholder image — vendored Garak with our probe-config baked in.
+        image: ghcr.io/T2S/garak-runner:0.1.0
+        command: [sh, -c]
+        args:
+          - |
+            set -euo pipefail
+            REPORT=/tmp/garak-report.jsonl
+            python -m garak \
+              --model_type openai.OpenAICompatible \
+              --model_name "{{inputs.parameters.model}}" \
+              --generator_option_file /etc/garak/generator.json \
+              --probes "{{inputs.parameters.probes}}" \
+              --generations "{{inputs.parameters.gens}}" \
+              --report_prefix "$REPORT"
+            echo "$REPORT" > /tmp/report-path
+        env:
+          - name: OPENAI_API_BASE
+            value: "{{inputs.parameters.endpoint}}"
+          - name: OPENAI_API_KEY
+            valueFrom:
+              secretKeyRef: { name: garak-gateway-token, key: token }
+        volumeMounts:
+          - { name: generator-config, mountPath: /etc/garak }
+        resources:
+          requests: { cpu: "2", memory: "4Gi" }
+          limits:   { cpu: "4", memory: "8Gi" }
+      volumes:
+        - name: generator-config
+          configMap: { name: garak-generator-config }
+
+    - name: summarize-report
+      inputs:
+        parameters:
+          - name: report-path
+      outputs:
+        parameters:
+          - name: pass-rate
+            valueFrom:
+              path: /tmp/pass-rate
+          - name: by-family
+            valueFrom:
+              path: /tmp/by-family
+      script:
+        image: python:3.12-slim
+        command: [python]
+        source: |
+          import json, collections, os
+          path = "{{inputs.parameters.report-path}}"
+          # Garak emits JSONL where each line has {probe, detector, passed, ...}
+          # We compute pass-rate = passed / total, both overall and per probe family.
+          totals = collections.Counter()
+          passes = collections.Counter()
+          with open(path) as f:
+              for line in f:
+                  rec = json.loads(line)
+                  family = rec["probe"].split(".")[0]
+                  totals[family] += 1
+                  if rec.get("passed"):
+                      passes[family] += 1
+          overall = sum(passes.values()) / max(sum(totals.values()), 1)
+          per_family = {fam: passes[fam] / max(totals[fam], 1) for fam in totals}
+          with open("/tmp/pass-rate", "w") as f:
+              f.write(f"{overall:.4f}")
+          with open("/tmp/by-family", "w") as f:
+              json.dump(per_family, f)
+          print(f"overall_pass_rate={overall:.4f}")
+          for fam, rate in per_family.items():
+              print(f"  {fam}: {rate:.4f}")
+
+    - name: push-metric
+      inputs:
+        parameters:
+          - name: model
+          - name: pass-rate
+          - name: by-family
+          - name: pushgateway
+      script:
+        image: curlimages/curl:8.10.1
+        command: [sh, -c]
+        source: |
+          set -euo pipefail
+          # Overall pass rate
+          cat <<EOF | curl -s --data-binary @- \
+            "{{inputs.parameters.pushgateway}}/metrics/job/llm-redteam/model/{{inputs.parameters.model}}"
+          # TYPE model_redteam_pass_rate gauge
+          model_redteam_pass_rate {{inputs.parameters.pass-rate}}
+          EOF
+          # Per-family (parsed and pushed individually)
+          echo '{{inputs.parameters.by-family}}' | \
+            python -c "
+          import json, sys, urllib.parse
+          d = json.loads(sys.stdin.read())
+          for fam, rate in d.items():
+              print(f'family={fam} rate={rate}')
+          " || true
+
+    - name: archive-report
+      inputs:
+        parameters:
+          - name: report-path
+          - name: model
+          - name: bucket
+      container:
+        image: amazon/aws-cli:2.17.0
+        command: [sh, -c]
+        args:
+          - |
+            set -euo pipefail
+            DATE=$(date +%Y/%m/%d)
+            DEST="{{inputs.parameters.bucket}}/$DATE/{{inputs.parameters.model}}/garak-report.jsonl"
+            aws s3 cp "{{inputs.parameters.report-path}}" "$DEST"
+            echo "archived to $DEST"

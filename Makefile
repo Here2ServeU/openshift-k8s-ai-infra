@@ -124,7 +124,7 @@ ui-share: ## Expose the local dev server on a public https URL via cloudflared.
 ##@ Local component tests
 
 .PHONY: test-local
-test-local: test-vector-db test-mlflow test-voice-agent test-python ## Run every local component test in sequence.
+test-local: test-vector-db test-mlflow test-voice-agent test-guardrails test-redteam test-python ## Run every local component test in sequence.
 	@echo "→ All local component tests passed."
 
 .PHONY: test-vector-db
@@ -138,6 +138,14 @@ test-mlflow: ## Spin up MLflow (SQLite backend) and log a sample run.
 .PHONY: test-voice-agent
 test-voice-agent: ## Apply voice-agent manifests, assert KEDA + NetworkPolicy + RBAC contract.
 	@bash scripts/test-voice-agent.sh
+
+.PHONY: test-guardrails
+test-guardrails: ## Apply guardrails (Llama Guard) manifests; assert ScaledObject + NetworkPolicy + policy ConfigMap.
+	@bash scripts/test-guardrails.sh
+
+.PHONY: test-redteam
+test-redteam: ## Apply Garak red-team manifests; assert WorkflowTemplate + CronWorkflow + AnalysisTemplate parse.
+	@bash scripts/test-redteam.sh
 
 .PHONY: test-python
 test-python: ## Smoke every Python automation script (--help + SLO + GPU report + SQS via LocalStack).

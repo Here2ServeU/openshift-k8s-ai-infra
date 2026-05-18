@@ -1,0 +1,62 @@
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: llama-guard
+  namespace: guardrails
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llama-guard
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+---
+# Alert on (a) sustained short-circuits (gateway can't reach guardrails) and
+# (b) high deny rate that might indicate either an attack or a misconfigured policy.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: llama-guard-rules
+  namespace: guardrails
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: guardrails.rules
+      rules:
+        - alert: GuardrailsShortCircuiting
+          expr: |
+            sum(rate(guardrails_short_circuit_total[5m])) > 0.5
+          for: 10m
+          labels:
+            severity: page
+          annotations:
+            summary: "inference-gateway is short-circuiting guardrails — model traffic is unprotected"
+            runbook: docs/runbooks/guardrails-short-circuit.md
+
+        - alert: GuardrailsHighDenyRate
+          expr: |
+            sum(rate(llama_guard_decisions_total{decision="deny"}[15m]))
+              /
+            sum(rate(llama_guard_decisions_total[15m]))
+            > 0.25
+          for: 30m
+          labels:
+            severity: ticket
+          annotations:
+            summary: "deny rate above 25% for 30m — investigate (attack? bad policy? bad model swap?)"
+
+        - alert: GuardrailsLatencyHigh
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(llama_guard_decision_duration_seconds_bucket[5m]))
+            ) > 0.5
+          for: 10m
+          labels:
+            severity: ticket
+          annotations:
+            summary: "guardrails p95 decision latency > 500ms — gateway will start short-circuiting"

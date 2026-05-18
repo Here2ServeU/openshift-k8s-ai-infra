@@ -1,0 +1,101 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: llama-guard
+  namespace: guardrails
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::000000000000:role/llama-guard-model-ro
+    iam.gke.io/gcp-service-account: llama-guard@PROJECT.iam.gserviceaccount.com
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-guard
+  namespace: guardrails
+  labels:
+    app.kubernetes.io/name: llama-guard
+    app.kubernetes.io/part-of: ai-runtime-security
+spec:
+  # Scale-to-zero is driven by KEDA (see scaledobject.yaml). The static replica
+  # count here is the maximum the rollout will allow KEDA to scale to.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: llama-guard
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llama-guard
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+    spec:
+      serviceAccountName: llama-guard
+      # GPU node pool for Llama Guard 2 (8B). On the local kind cluster the
+      # deployment falls back to CPU shadow mode via env (LLAMA_GUARD_MODE=shadow).
+      nodeSelector:
+        workload-type: gpu-inference
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: llama-guard
+          # Placeholder image. The contract: serve POST /v1/guard taking
+          # {prompt, context} and returning {allow, categories, scores, model_version}.
+          # See README.md §"The /v1/guard contract".
+          image: ghcr.io/T2S/llama-guard-server:0.1.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http,    containerPort: 8080 }
+            - { name: metrics, containerPort: 8080 }
+          env:
+            - name: MODEL_NAME
+              value: "meta-llama/Llama-Guard-2-8B"
+            - name: MODEL_DIGEST
+              # Content-addressed; verified at startup against MODEL_BUCKET.
+              value: "sha256:placeholder"
+            - name: MODEL_BUCKET
+              valueFrom:
+                configMapKeyRef: { name: llama-guard-config, key: model_bucket }
+            - name: LLAMA_GUARD_MODE
+              valueFrom:
+                configMapKeyRef: { name: llama-guard-config, key: mode }
+            - name: POLICY_PATH
+              value: /etc/llama-guard/policy.yaml
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability:4317
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "2", memory: 8Gi, nvidia.com/gpu: 1 }
+            limits:   { cpu: "8", memory: 24Gi, nvidia.com/gpu: 1 }
+          volumeMounts:
+            - { name: policy,    mountPath: /etc/llama-guard }
+            - { name: model-cache, mountPath: /models }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: policy
+          configMap: { name: llama-guard-policy }
+        - name: model-cache
+          emptyDir: { sizeLimit: 30Gi }

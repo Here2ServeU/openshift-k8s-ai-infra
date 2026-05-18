@@ -1,0 +1,64 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llama-guard-default-deny
+  namespace: guardrails
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Allow ingress from inference-gateway (the only legitimate caller of /v1/guard)
+# and observability (Prometheus scrape).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llama-guard-allowed-clients
+  namespace: guardrails
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: llama-guard
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: workloads   # inference-gateway lives here
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability   # Prometheus scrape
+      ports:
+        - { protocol: TCP, port: 8080 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llama-guard-egress
+  namespace: guardrails
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: llama-guard
+  policyTypes: [Egress]
+  egress:
+    # cluster DNS
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: kube-system }
+      ports: [{ protocol: UDP, port: 53 }]
+    # OTel collector for traces + metrics
+    - to:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: observability }
+      ports:
+        - { protocol: TCP, port: 4317 }
+        - { protocol: TCP, port: 4318 }
+    # S3 / GCS for the model bucket. Block IMDS to prevent SSRF from any
+    # vulnerability in the model server.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [169.254.169.254/32]
+      ports:
+        - { protocol: TCP, port: 443 }

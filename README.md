@@ -21,7 +21,8 @@ The same manifests deploy locally on `kind` (for development and demos), on AWS 
 | **T2S-style platform ops** | React/Node UI + Python API + queue-backed evaluation workers, SQS/KEDA scaling, Postgres/Redis/S3 dependencies, service-group promotion |
 | **Voice/text agent simulation** | Separate `t2s-worker-voice` tier with persona configmaps (tone, speech speed, call quality), KEDA on active-call concurrency, drain-on-rollout |
 | **Retrieval + guardrails** | In-cluster Qdrant vector DB for embedding-backed eval suites and similarity-based prompt-injection canaries at the gateway |
-| **Security posture** | OWASP Top 10 (web + K8s) mapped to controls in-repo; Trivy + gitleaks + Semgrep wired into CI; IRSA / Workload Identity instead of static cloud keys |
+| **AI runtime security** | Llama Guard 2 sidecar called from the gateway via `ext_authz`; response-path PII / secret scanner; Garak red-team Argo Workflow gating canary→stable; swap path for Prisma AIRS / Lakera / Robust Intelligence |
+| **Security posture** | OWASP Top 10 (web + K8s + LLM) mapped to controls in-repo; Trivy + gitleaks + Semgrep wired into CI; IRSA / Workload Identity instead of static cloud keys |
 | **Python automation** | Operational scripts for SQS audit, cost reporting, model-artifact validation, GPU-utilization reporting, and SLO burn checks |
 
 ---
@@ -181,7 +182,18 @@ The test does four things:
 
 Swap in a real image (or a stub that emits `voice_call_active_count` from `/metrics`) to actually exercise scaling — the [Prometheus trigger query](workloads/voice-agent/scaledobject.yaml#L43-L49) will pick up the synthetic metric and scale the deployment.
 
-### 4. Python automation scripts
+### 4. AI runtime security — guardrails + red-team contract tests
+
+```bash
+make test-guardrails    # apply Llama Guard manifests, assert ScaledObject + NetworkPolicy + policy ConfigMap
+make test-redteam       # apply Garak Argo Workflow + CronWorkflow + AnalysisTemplate, assert they parse
+```
+
+The Llama Guard pod will `ImagePullBackOff` on kind (placeholder image + needs a GPU) — that's expected, the contract is what we test locally. The real-model run is in CI on a self-hosted GPU runner. The Garak run uses a CPU-friendly probe set against TinyLlama for ~90s of total wall time.
+
+Architecture rationale: [ADR-009](docs/decisions/009-ai-runtime-security.md). OWASP LLM Top 10 mapping: [`docs/security/llm-security-posture.md`](docs/security/llm-security-posture.md). Swap path to a commercial AI firewall (Prisma AIRS, Lakera, Robust Intelligence): [`workloads/guardrails/README.md`](workloads/guardrails/README.md).
+
+### 5. Python automation scripts
 
 The scripts are stdlib-plus-boto3 and can run against the local cluster's Prometheus + an SQS endpoint (real AWS, or `moto-server` / LocalStack):
 
@@ -212,7 +224,7 @@ AWS_REGION=us-east-1 AWS_ACCESS_KEY_ID=test AWS_SECRET_ACCESS_KEY=test \
 ### Run the full local test suite
 
 ```bash
-make test-local        # vector-db + mlflow + voice-agent + python, in order
+make test-local        # vector-db + mlflow + voice-agent + guardrails + redteam + python, in order
 ```
 
 This is the gate you want green before opening a PR that touches the new components. CI runs the same targets on every PR via [`ci/.github/workflows/helm-lint.yml`](ci/.github/workflows/helm-lint.yml) and [`ci/.github/workflows/argocd-sync-check.yml`](ci/.github/workflows/argocd-sync-check.yml).
@@ -286,8 +298,9 @@ make platform-up
 ├── workloads/
 │   ├── llm-serving/                # vLLM Helm chart + Rollout
 │   ├── kserve-models/              # traditional ML inference services
-│   ├── inference-gateway/          # Envoy-based routing + guardrails
-│   ├── eval-platform/              # lm-eval-harness as Argo Workflow
+│   ├── inference-gateway/          # Envoy-based routing + guardrails ext_authz + output scanner
+│   ├── guardrails/                 # Llama Guard 2 — input-side AI runtime security (swap path for Prisma AIRS)
+│   ├── eval-platform/              # lm-eval-harness + Garak red-team Argo Workflows
 │   ├── t2s-platform/               # React/Node UI + Python API + queue worker (T2S service group)
 │   ├── voice-agent/                # Voice worker tier — personas, KEDA on active calls
 │   ├── vector-db/                  # Qdrant cluster for embedding retrieval + guardrails
@@ -316,6 +329,7 @@ A few non-obvious calls are documented as ADRs in [`docs/decisions/`](docs/decis
 - [**ADR-005**: OpenTelemetry Collector as the single ingestion point](docs/decisions/005-otel-collector.md) — one agent, three backends, vendor-portable instrumentation.
 - [**ADR-006**: ArgoCD over Flux + Argo Rollouts for progressive delivery](docs/decisions/006-argocd-rollouts.md)
 - [**ADR-007**: Terraform abstraction for multi-cloud portability](docs/decisions/007-multi-cloud-terraform.md)
+- [**ADR-009**: AI runtime security — guardrails sidecar, output scanning, red-team eval](docs/decisions/009-ai-runtime-security.md) — three-layer defense with a documented swap path to a commercial AI firewall (Prisma AIRS, Lakera, Robust Intelligence).
 
 ---
 
@@ -380,6 +394,7 @@ New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is 
 - **Vector retrieval (embeddings, prompt-injection canaries)** → [`workloads/vector-db/`](workloads/vector-db/)
 - **Python automation** → [`scripts/python/`](scripts/python/) — SQS audit, cost report, model artifact validate, GPU util, SLO burn
 - **Security posture (OWASP, K8s hardening)** → [`docs/security/owasp-posture.md`](docs/security/owasp-posture.md) + [`ci/.github/workflows/security-scan.yml`](ci/.github/workflows/security-scan.yml)
+- **LLM / AI runtime security (OWASP LLM Top 10, Prisma AIRS swap path)** → [`docs/security/llm-security-posture.md`](docs/security/llm-security-posture.md) + [`workloads/guardrails/`](workloads/guardrails/) + [`workloads/eval-platform/redteam/`](workloads/eval-platform/redteam/) + [ADR-009](docs/decisions/009-ai-runtime-security.md)
 - **T2S SLOs** → [`observability/slo/t2s-slo.yaml`](observability/slo/t2s-slo.yaml) (API availability, API latency, queue freshness, eval success rate)
 - **T2S queue backlog incident** → [`docs/runbooks/t2s-queue-backlog.md`](docs/runbooks/t2s-queue-backlog.md)
 - **Pushing back on research asks** → [`docs/onboarding/operating-principles.md`](docs/onboarding/operating-principles.md) (Principle 3)

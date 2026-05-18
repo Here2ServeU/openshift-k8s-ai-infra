@@ -1,0 +1,27 @@
+---
+# Nightly full red-team sweep — every probe family, full generation count.
+# This is the slow, expensive run. The per-release sampled gate uses the
+# WorkflowTemplate directly with a reduced probe set.
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: llm-redteam-nightly
+  namespace: workloads
+spec:
+  schedule: "0 7 * * *"   # 07:00 UTC — overnight in US/Pacific
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 14
+  workflowSpec:
+    workflowTemplateRef:
+      name: llm-redteam
+    arguments:
+      parameters:
+        - name: candidate-model
+          value: "llama3-8b"   # current production
+        - name: candidate-endpoint
+          value: "http://inference-gateway.workloads:8080/v1"
+        - name: probe-families
+          value: "promptinject,dan,goodside,lmrc,atkgen,encoding,latentinjection,divergence"
+        - name: generations
+          value: "50"

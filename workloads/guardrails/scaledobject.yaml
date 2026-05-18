@@ -1,0 +1,30 @@
+---
+# KEDA scales Llama Guard on inference-gateway request rate. Scale-to-zero is
+# enabled — at 0 RPS the gateway short-circuits to allow with a metric
+# (`guardrails_short_circuit_total`) that pages if it stays elevated.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: llama-guard
+  namespace: guardrails
+spec:
+  scaleTargetRef:
+    name: llama-guard
+  minReplicaCount: 0
+  maxReplicaCount: 6
+  cooldownPeriod: 300   # 5 min — Llama Guard cold start is ~45s with GPU
+  pollingInterval: 15
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability:9090
+        threshold: "20"
+        query: |
+          sum(rate(envoy_http_inference_gateway_rq_total[2m]))
+    # GPU saturation — scale up before token latency suffers
+    - type: prometheus
+      metadata:
+        serverAddress: http://prometheus-operated.observability:9090
+        threshold: "0.7"
+        query: |
+          avg(DCGM_FI_DEV_GPU_UTIL{namespace="guardrails"}) / 100
