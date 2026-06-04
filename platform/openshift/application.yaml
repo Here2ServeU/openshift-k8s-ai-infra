@@ -1,0 +1,41 @@
+---
+# Day-2 GitOps for the OpenShift platform layer.
+#
+# Apply this ONCE, AFTER `make ocp-operators` has installed the OpenShift-only CRDs
+# (operators.coreos.com, security.openshift.io, nvidia.com, route.openshift.io). From
+# then on ArgoCD reconciles this whole directory, so Subscriptions / ClusterPolicy /
+# SCCs / Routes are managed the same GitOps way as every other platform component.
+#
+# It is intentionally NOT in platform/argocd/apps/ (which the root app-of-apps recurses
+# on every profile) because these CRDs don't exist on kind/EKS/GKE/AKS and the App would
+# go permanently Degraded there. See platform/openshift/README.md.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: openshift-platform
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/T2S/k8s-ai-ml-infra
+    targetRevision: main
+    path: platform/openshift
+    directory:
+      recurse: true
+      exclude: "application.yaml"   # don't let the App manage itself
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: false        # never auto-prune SCCs / Subscriptions — too blast-radius-y
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true   # ClusterPolicy + DataScienceCluster are large CRs
+      - ApplyOutOfSyncOnly=true
+    # OLM rewrites Subscription/CSV status constantly; ignore that churn.
+    retry:
+      limit: 5
+      backoff: { duration: 30s, factor: 2, maxDuration: 5m }

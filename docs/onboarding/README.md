@@ -9,6 +9,7 @@ Welcome to the team. This folder is the working introduction to the T2S platform
 > - [operating-principles.md](operating-principles.md) — how we operate the platform day-to-day: ownership, judgment, cross-functional influence, on-call.
 > - [voice-agent-infra.md](voice-agent-infra.md) — how the voice/text agent simulation layer sits on Kubernetes.
 > - [scaling-playbook.md](scaling-playbook.md) — how we plan and execute capacity changes (e.g. supporting 10× eval throughput).
+> - [openshift-platform.md](openshift-platform.md) — the four seams that differ when this platform runs on Red Hat OpenShift (OperatorHub/OLM, RHCOS GPU enablement, SCCs, Routes), plus ROSA/ARO/self-managed and RHOAI.
 
 ---
 

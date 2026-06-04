@@ -1,0 +1,35 @@
+---
+# OpenShift Route for the inference gateway — the OpenShift-native ingress that
+# replaces ingress-nginx + a cloud LoadBalancer on this profile. The HAProxy
+# router handles edge TLS termination; cert-manager (Red Hat operator) supplies
+# the cert via the openshift-route integration, or you can let the router serve
+# its default wildcard cert for a demo.
+#
+# The gateway Service (workloads/inference-gateway/) is unchanged — only the
+# north-south entry point differs from the ingress-nginx profiles.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: inference-gateway
+  namespace: workloads
+  labels:
+    app.kubernetes.io/component: inference-gateway
+  annotations:
+    # cert-manager (Red Hat operator) issues+rotates the cert for this Route.
+    cert-manager.io/issuer-kind: ClusterIssuer
+    cert-manager.io/issuer-name: letsencrypt-prod
+    # Long-lived streaming responses (token streaming) — bump the router timeout
+    # from the 30s default so SSE/chunked responses aren't cut off.
+    haproxy.router.openshift.io/timeout: 300s
+spec:
+  host: chat.api.example.com
+  to:
+    kind: Service
+    name: inference-gateway
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  wildcardPolicy: None

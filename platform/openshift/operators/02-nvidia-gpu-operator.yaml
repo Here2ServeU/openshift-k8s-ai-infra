@@ -1,0 +1,16 @@
+---
+# NVIDIA GPU Operator — installed from the certified operator catalog (OperatorHub),
+# NOT the upstream Helm chart we use on cloud (see platform/argocd/apps/07-nvidia-gpu-operator.yaml).
+# The ClusterPolicy lives in gpu/clusterpolicy.yaml and is applied after this CSV
+# reports Succeeded.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: gpu-operator-certified
+  namespace: nvidia-gpu-operator
+spec:
+  channel: "stable"
+  installPlanApproval: Automatic
+  name: gpu-operator-certified
+  source: certified-operators
+  sourceNamespace: openshift-marketplace

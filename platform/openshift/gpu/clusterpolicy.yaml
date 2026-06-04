@@ -1,0 +1,51 @@
+---
+# NVIDIA GPU Operator ClusterPolicy — OpenShift variant.
+#
+# The big difference vs. the cloud Helm install (platform/argocd/apps/07-nvidia-gpu-operator.yaml):
+#   driver.enabled = TRUE.
+# OpenShift runs RHCOS (immutable host) — there's no AMI/DaemonSet that pre-installs
+# the driver, so the operator builds the kernel module in-cluster against the running
+# RHCOS kernel using the Driver Toolkit. NFD must have labelled the GPU nodes first.
+apiVersion: nvidia.com/v1
+kind: ClusterPolicy
+metadata:
+  name: gpu-cluster-policy
+spec:
+  operator:
+    defaultRuntime: crio          # OpenShift uses CRI-O, not containerd
+    use_ocp_driver_toolkit: true  # build the driver via the OCP Driver Toolkit
+  daemonsets:
+    rollingUpdate:
+      maxUnavailable: "1"
+  driver:
+    enabled: true                 # <-- the OpenShift difference
+    upgradePolicy:
+      autoUpgrade: true
+      maxParallelUpgrades: 1
+  toolkit:
+    enabled: true
+  devicePlugin:
+    enabled: true
+    config:
+      # Reference the time-slicing ConfigMap (gpu/time-slicing-configmap.yaml).
+      # Set the node label nvidia.com/device-plugin.config=tesla-t4 (etc.) to opt
+      # a node pool into a sharing profile. Default = no sharing.
+      name: device-plugin-config
+      default: "default"
+  dcgmExporter:
+    enabled: true
+    serviceMonitor:
+      enabled: true               # ships GPU metrics to user-workload Prometheus
+  gfd:
+    enabled: true                 # GPU Feature Discovery — labels nodes with GPU model/memory
+  mig:
+    strategy: single              # A100/H100 partitioning; no-op on L4/T4
+  migManager:
+    enabled: true
+  nodeStatusExporter:
+    enabled: true
+  validator:
+    plugin:
+      env:
+        - name: WITH_WORKLOAD
+          value: "false"

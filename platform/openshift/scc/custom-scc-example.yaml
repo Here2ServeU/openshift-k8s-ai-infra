@@ -1,0 +1,72 @@
+---
+# DOCUMENTED ANTI-PATTERN — read scc/README.md before applying this.
+#
+# This is the narrowest correct shape for a custom SCC: a near-clone of restricted-v2
+# that only differs where a workload genuinely requires it, bound to ONE named
+# ServiceAccount. Use this template only when an image cannot be fixed to run under
+# restricted-v2. In this repo, nothing currently needs it — vLLM runs under
+# restricted-v2 via values-openshift.yaml. It's here so the "right way to do the wrong
+# thing" is on record.
+#
+# The (contrived) need here: a hypothetical legacy sidecar that must run as a FIXED UID
+# 1001 (e.g. it hardcodes file ownership) rather than an arbitrary assigned UID.
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: vllm-fixed-uid
+  annotations:
+    kubernetes.io/description: >-
+      Clone of restricted-v2 that pins runAsUser to 1001 for a legacy sidecar.
+      Bound to exactly one ServiceAccount. Do not widen.
+# --- everything below mirrors restricted-v2 ---
+allowPrivilegedContainer: false
+allowPrivilegeEscalation: false
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+readOnlyRootFilesystem: false
+requiredDropCapabilities:
+  - ALL
+defaultAddCapabilities: null
+allowedCapabilities: null
+seccompProfiles:
+  - runtime/default
+seLinuxContext:
+  type: MustRunAs
+fsGroup:
+  type: MustRunAs
+supplementalGroups:
+  type: RunAsAny
+volumes:
+  - configMap
+  - downwardAPI
+  - emptyDir
+  - ephemeral
+  - persistentVolumeClaim
+  - projected
+  - secret
+# --- the one deviation ---
+runAsUser:
+  type: MustRunAs
+  uid: 1001
+# Bind to exactly one SA. NEVER list groups: ["system:authenticated"] here.
+users:
+  - system:serviceaccount:workloads:vllm-legacy-sidecar
+groups: []
+---
+# The RoleBinding form (preferred over the SCC `users` list for auditability):
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: use-vllm-fixed-uid-scc
+  namespace: workloads
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:vllm-fixed-uid
+subjects:
+  - kind: ServiceAccount
+    name: vllm-legacy-sidecar
+    namespace: workloads

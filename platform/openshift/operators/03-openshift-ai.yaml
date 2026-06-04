@@ -1,0 +1,53 @@
+---
+# Red Hat OpenShift AI (RHOAI / formerly Red Hat OpenShift Data Science).
+#
+# This is the supported-product alternative to the DIY KServe + vLLM + MLflow stack
+# already in this repo (platform/kserve, workloads/llm-serving, platform/mlflow).
+# ADR-010 explains when you'd reach for RHOAI vs the DIY stack — the short version:
+# RHOAI gives you Red Hat support, a console for data scientists (Workbenches), and a
+# managed KServe; the DIY stack gives you control over vLLM/runtime versions and a
+# cloud-portable footprint. They can coexist — RHOAI serves the self-service /
+# experimentation lane, the DIY stack serves the latency-critical production lane.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: rhods-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+---
+# DataScienceCluster — created after the operator CSV reports Succeeded (make ocp-ai).
+# Enables the components we actually use; leaves the rest Removed to keep the
+# footprint small. KServe in Serverless mode reuses the same vLLM ServingRuntime
+# contract as the DIY chart, so models promote the same way.
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  name: default-dsc
+spec:
+  components:
+    kserve:
+      managementState: Managed
+      serving:
+        managementState: Managed
+        name: knative-serving
+    modelmeshserving:
+      managementState: Removed
+    workbenches:
+      managementState: Managed      # Jupyter for data scientists / eval authors
+    dashboard:
+      managementState: Managed
+    datasciencepipelines:
+      managementState: Managed       # Tekton-backed pipelines (Argo Workflows analog)
+    trainingoperator:
+      managementState: Removed
+    ray:
+      managementState: Managed       # mirrors the data-pipeline Ray ETL workload
+    modelregistry:
+      managementState: Managed
+    kueue:
+      managementState: Managed       # gang scheduling / queue for GPU jobs

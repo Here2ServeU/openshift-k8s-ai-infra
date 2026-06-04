@@ -39,6 +39,9 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: {{ include "llm-serving.name" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -86,6 +89,12 @@ spec:
             - name: OTEL_RESOURCE_ATTRIBUTES
               value: "gen_ai.system=vllm,gen_ai.request.model={{ .Values.model.name }}"
             {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
           args:
             {{- range .Values.runtime.args }}
             - {{ . }}

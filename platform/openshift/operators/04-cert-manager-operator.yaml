@@ -1,0 +1,16 @@
+---
+# Red Hat cert-manager operator — the OpenShift-supported replacement for the
+# upstream cert-manager Helm install used on cloud profiles (platform/cert-manager).
+# Once installed it reconciles the same Certificate / Issuer CRDs, so the
+# selfsigned-issuer and observability TLS manifests work unchanged.
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  channel: stable-v1
+  installPlanApproval: Automatic
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace

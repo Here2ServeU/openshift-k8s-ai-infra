@@ -165,6 +165,50 @@ gcp-up: ## Apply the GCP Terraform (GKE + GPU node pool + Workload Identity).
 azure-up: ## Apply the Azure Terraform (AKS + GPU spot pool + Workload Identity).
 	cd terraform/azure && terraform init && terraform apply
 
+.PHONY: rosa-up
+rosa-up: ## Apply the ROSA Terraform (OpenShift HCP + GPU machine pool + OIDC). Needs RHCS_TOKEN.
+	cd terraform/rosa && terraform init && terraform apply
+
+##@ OpenShift profile (requires `oc` logged in as cluster-admin)
+
+# Wait for an OLM CSV to report Succeeded before applying its CRs.
+define wait_csv
+	@echo "→ waiting for CSV matching '$(1)' in $(2) to Succeed..."; \
+	for i in $$(seq 1 60); do \
+		oc get csv -n $(2) 2>/dev/null | grep -q "$(1).*Succeeded" && { echo "  ok"; break; }; \
+		sleep 10; \
+	done
+endef
+
+.PHONY: ocp-up
+ocp-up: ocp-operators ocp-gpu ocp-ai platform-up workloads-up ocp-route ## Full OpenShift bring-up, in dependency order.
+	@echo "OpenShift stack is up."
+
+.PHONY: ocp-operators
+ocp-operators: ## Install OperatorHub Subscriptions (NFD, GPU Operator, cert-manager, RHOAI).
+	oc apply -f platform/openshift/operators/
+
+.PHONY: ocp-gpu
+ocp-gpu: ## Create NodeFeatureDiscovery + GPU ClusterPolicy + time-slicing (waits on operator CSVs).
+	$(call wait_csv,nfd,openshift-nfd)
+	$(call wait_csv,gpu-operator-certified,nvidia-gpu-operator)
+	oc apply -f platform/openshift/gpu/clusterpolicy.yaml
+	oc apply -f platform/openshift/gpu/time-slicing-configmap.yaml
+	@echo "GPU stack applied. Check: oc get clusterpolicy gpu-cluster-policy -o jsonpath='{.status.state}'"
+
+.PHONY: ocp-ai
+ocp-ai: ## Create the Red Hat OpenShift AI DataScienceCluster (waits on the RHOAI CSV).
+	$(call wait_csv,rhods-operator,redhat-ods-operator)
+	oc apply -f platform/openshift/operators/03-openshift-ai.yaml
+
+.PHONY: ocp-route
+ocp-route: ## Expose the inference gateway via an OpenShift Route.
+	oc apply -f platform/openshift/routes/
+
+.PHONY: ocp-gitops
+ocp-gitops: ## Hand the OpenShift platform layer to ArgoCD for day-2 reconciliation (run after ocp-operators).
+	oc apply -f platform/openshift/application.yaml
+
 ##@ Hygiene
 
 .PHONY: lint
@@ -185,3 +229,4 @@ tf-fmt: ## terraform fmt -check.
 	terraform -chdir=terraform/aws fmt -recursive -check
 	terraform -chdir=terraform/gcp fmt -recursive -check
 	terraform -chdir=terraform/azure fmt -recursive -check
+	terraform -chdir=terraform/rosa fmt -recursive -check

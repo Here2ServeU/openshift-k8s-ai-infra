@@ -1,0 +1,68 @@
+---
+# Namespaces + OperatorGroups for the OpenShift operator stack.
+# OLM requires an OperatorGroup in the namespace where an operator's CSV lands
+# before its Subscription will resolve. Apply this before the Subscriptions.
+#
+# nfd + nvidia-gpu-operator install into their own namespaces; cert-manager
+# uses the Red Hat cert-manager operator; RHOAI installs into redhat-ods-operator.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openshift-nfd
+  labels:
+    openshift.io/cluster-monitoring: "true"
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-nfd
+  namespace: openshift-nfd
+spec:
+  targetNamespaces:
+    - openshift-nfd
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nvidia-gpu-operator
+  labels:
+    openshift.io/cluster-monitoring: "true"
+    # The GPU Operator's operands run privileged (they build/load the kernel
+    # module). Pin this namespace so its SCC grant is scoped, not cluster-wide.
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: nvidia-gpu-operator
+  namespace: nvidia-gpu-operator
+spec:
+  targetNamespaces:
+    - nvidia-gpu-operator
+---
+# cert-manager — Red Hat operator (replaces the upstream Helm install used on
+# cloud profiles). Cluster-scoped, so the OperatorGroup has no targetNamespaces.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cert-manager-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec: {}
+---
+# Red Hat OpenShift AI (RHOAI / formerly RHODS) — see 03-openshift-ai.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: redhat-ods-operator
+---
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: rhods-operator
+  namespace: redhat-ods-operator
+spec: {}

@@ -1,10 +1,10 @@
 # k8s-ai-ml-infra
 
-> **A production-grade Kubernetes platform for serving, evaluating, and operating LLMs and ML models at scale — runs on AWS, GCP, Azure, or your laptop.**
+> **A production-grade Kubernetes _and_ OpenShift platform for serving, evaluating, and operating LLMs and ML models at scale — runs on AWS, GCP, Azure, OpenShift (ROSA), or your laptop.**
 
 This repo is a working reference architecture for the infrastructure problems you hit when you take models from research to production: GPU scheduling, sub-second autoscaling on bursty traffic, high-frequency model releases, end-to-end observability, and cost control on expensive accelerator fleets.
 
-The same manifests deploy locally on `kind` (for development and demos), on AWS EKS, on GCP GKE, or on Azure AKS. Cloud differences live behind Terraform modules; the workload layer is portable.
+The same manifests deploy locally on `kind` (for development and demos), on AWS EKS, on GCP GKE, on Azure AKS, or on **Red Hat OpenShift** (ROSA / ARO / self-managed). Cloud and distribution differences live behind Terraform modules and a thin OpenShift platform layer; the workload layer is portable. The OpenShift-specific seams — OperatorHub/OLM, Security Context Constraints, RHCOS GPU enablement, Routes, and Red Hat OpenShift AI — are first-class, not afterthoughts (see [ADR-010](docs/decisions/010-openshift-target.md)).
 
 ---
 
@@ -13,6 +13,7 @@ The same manifests deploy locally on `kind` (for development and demos), on AWS 
 | Pillar | What's in here |
 |---|---|
 | **Kubernetes for AI workloads** | NVIDIA GPU Operator, MIG/time-slicing, node pools with taints/tolerations, topology-aware scheduling, RuntimeClass for vLLM |
+| **OpenShift platform engineering** | OperatorHub/OLM Subscriptions, RHCOS GPU enablement (NFD → GPU Operator → ClusterPolicy, driver built in-cluster), `restricted-v2` SCC posture, Routes, ROSA HCP Terraform, and Red Hat OpenShift AI (RHOAI) alongside the DIY serving stack |
 | **CI/CD for high-frequency releases** | GitHub Actions → OCI image build (cosign-signed, SBOM) → ArgoCD GitOps → Argo Rollouts canary with SLO-gated promotion |
 | **Observability** | OpenTelemetry Collector → Prometheus + Loki + Tempo → Grafana. LLM-specific dashboards (TTFT, TPOT, tokens/sec, KV-cache util, queue depth) |
 | **Scaling & reliability** | KEDA on queue depth + GPU util; Karpenter (AWS) / GKE node auto-provisioning for spot GPU bursts; PDBs + topology spread; multi-burn-rate SLO alerts |
@@ -258,6 +259,18 @@ az aks get-credentials --resource-group ai-ml-infra-rg --name ai-ml-infra
 make platform-up
 ```
 
+## Quickstart — deploy to OpenShift (ROSA)
+
+```bash
+export RHCS_TOKEN=<console.redhat.com token>
+cd terraform/rosa
+terraform init && terraform apply           # ROSA HCP + GPU machine pool + OIDC + S3
+rosa create admin --cluster ai-ml-infra     # then oc login with the printed creds
+make ocp-up                                 # OperatorHub stack → GPU → RHOAI → platform → workloads → Route
+```
+
+`make ocp-up` is the OpenShift equivalent of `make platform-up`: it installs the OperatorHub Subscriptions (NFD, NVIDIA GPU Operator, cert-manager, RHOAI), waits for each CSV, applies the GPU `ClusterPolicy`, brings up the platform + workloads, and exposes the gateway via a Route. The OpenShift-specific layer lives in [`platform/openshift/`](platform/openshift/); the rationale is [ADR-010](docs/decisions/010-openshift-target.md). New to OpenShift on this platform? Start with [`docs/onboarding/openshift-platform.md`](docs/onboarding/openshift-platform.md).
+
 ---
 
 ## Repo layout
@@ -277,10 +290,12 @@ make platform-up
 │   ├── aws/                        # EKS, VPC, IRSA, S3 model bucket, Karpenter
 │   ├── gcp/                        # GKE, VPC, Workload Identity, GCS model bucket
 │   ├── azure/                      # AKS, VNet, Workload Identity, Blob model storage
+│   ├── rosa/                       # ROSA HCP OpenShift, GPU machine pool, OIDC, S3 bucket
 │   └── modules/                    # shared abstractions
 ├── local/                          # kind cluster config + bootstrap
 ├── platform/                       # cluster-scoped components (installed once per cluster)
 │   ├── argocd/                     # app-of-apps root
+│   ├── openshift/                  # OpenShift-only layer: OperatorHub Subs, GPU ClusterPolicy, SCCs, Routes
 │   ├── cert-manager/
 │   ├── ingress-nginx/
 │   ├── external-secrets/
@@ -330,6 +345,7 @@ A few non-obvious calls are documented as ADRs in [`docs/decisions/`](docs/decis
 - [**ADR-006**: ArgoCD over Flux + Argo Rollouts for progressive delivery](docs/decisions/006-argocd-rollouts.md)
 - [**ADR-007**: Terraform abstraction for multi-cloud portability](docs/decisions/007-multi-cloud-terraform.md)
 - [**ADR-009**: AI runtime security — guardrails sidecar, output scanning, red-team eval](docs/decisions/009-ai-runtime-security.md) — three-layer defense with a documented swap path to a commercial AI firewall (Prisma AIRS, Lakera, Robust Intelligence).
+- [**ADR-010**: OpenShift as a first-class deployment target](docs/decisions/010-openshift-target.md) — the four seams that differ from vanilla K8s (OperatorHub/OLM, RHCOS GPU enablement, SCC `restricted-v2`, Routes), ROSA vs ARO vs self-managed, MachineSet vs Karpenter, and RHOAI alongside the DIY serving stack.
 
 ---
 
@@ -381,6 +397,7 @@ New to the team? Start in [`docs/onboarding/`](docs/onboarding/). The folder is 
 ### Where to look for specific topics
 
 - **Running T2S on Kubernetes** → [`workloads/t2s-platform/`](workloads/t2s-platform/) + [`docs/onboarding/README.md`](docs/onboarding/README.md) + [ADR-008](docs/decisions/008-t2s-service-group.md)
+- **Running on OpenShift (OperatorHub, SCC, RHCOS GPU, Routes, ROSA, RHOAI)** → [`platform/openshift/`](platform/openshift/) + [`terraform/rosa/`](terraform/rosa/) + [`docs/onboarding/openshift-platform.md`](docs/onboarding/openshift-platform.md) + [ADR-010](docs/decisions/010-openshift-target.md)
 - **T2S operator UI (Next.js, branded)** → [`workloads/t2s-platform/ui/`](workloads/t2s-platform/ui/) + [`workloads/t2s-platform/ui/BRAND.md`](workloads/t2s-platform/ui/BRAND.md)
 - **Branded Grafana dashboards** → [`observability/dashboards/BRAND.md`](observability/dashboards/BRAND.md)
 - **Voice/text agent simulation** → [`workloads/voice-agent/`](workloads/voice-agent/) + [`docs/onboarding/voice-agent-infra.md`](docs/onboarding/voice-agent-infra.md)

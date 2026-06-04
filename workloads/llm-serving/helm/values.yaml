@@ -71,6 +71,19 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ----------------------------------------------------------------------------
+# Pod / container security context. Empty by default — the cloud profiles rely
+# on Pod Security Admission `restricted`, which the upstream image already meets.
+# values-openshift.yaml fills these in to admit cleanly under SCC `restricted-v2`
+# (arbitrary assigned UID, no privilege escalation, all caps dropped). See
+# platform/openshift/scc/README.md.
+podSecurityContext: {}
+securityContext: {}
+
+# Extra env appended to the vLLM container. values-openshift.yaml uses this to
+# redirect HF/cache/HOME writes to world-writable mounts so an arbitrary UID works.
+extraEnv: []
+
+# ----------------------------------------------------------------------------
 # Rollout strategy — see ADR-006. Canary gated by AnalysisTemplate.
 # ----------------------------------------------------------------------------
 rollout:
@@ -97,6 +110,17 @@ service:
 
 ingress:
   enabled: false  # gateway in front
+
+# OpenShift Route — alternative north-south entry to ingress. Off by default;
+# values-openshift.yaml turns it on. Normally the inference-gateway is the public
+# edge and this stays disabled, but it's here for a gateway-less smoke test.
+route:
+  enabled: false
+  host: ""
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+  timeout: 300s
 
 # ----------------------------------------------------------------------------
 # Observability

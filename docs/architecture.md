@@ -11,7 +11,7 @@ This is the long-form companion to the [top-level README](../README.md). It walk
 │ Platform           ArgoCD  Rollouts  KEDA  Karpenter  GPU Operator   │
 │                    Prom/Loki/Tempo  OTel  cert-manager  ESO  Argo WF │
 ├─────────────────────────────────────────────────────────────────────┤
-│ Cluster            EKS / GKE / kind                                  │
+│ Cluster            EKS / GKE / AKS / ROSA (OpenShift) / kind         │
 ├─────────────────────────────────────────────────────────────────────┤
 │ Cloud              VPC  IAM (IRSA / WI)  S3/GCS  KMS  Route53/CloudDNS│
 └─────────────────────────────────────────────────────────────────────┘
@@ -96,6 +96,17 @@ The workload layer (everything under `platform/` and `workloads/`) is plain Kube
 - **Secrets**: External Secrets Operator backends differ (AWS Secrets Manager / GCP Secret Manager / Azure Key Vault) but `ExternalSecret` CRDs are identical.
 
 See [ADR-007](decisions/007-multi-cloud-terraform.md) for the detailed abstraction strategy.
+
+## OpenShift adaptations
+
+OpenShift (ROSA / ARO / self-managed) is a first-class target. The workload layer is byte-for-byte the same; the platform layer differs at four seams, all isolated under [`platform/openshift/`](../platform/openshift/) and reasoned through in [ADR-010](decisions/010-openshift-target.md):
+
+- **Component install → OperatorHub / OLM.** Instead of Helm-via-ArgoCD, the OpenShift-only components (NFD, NVIDIA GPU Operator, cert-manager, RHOAI) install as OLM `Subscription`s. They can't bootstrap from the recursive app-of-apps (the CRDs don't exist on non-OpenShift clusters), so they have their own `make ocp-*` path; once the CRDs exist, [`platform/openshift/application.yaml`](../platform/openshift/application.yaml) hands the layer back to ArgoCD for day-2.
+- **GPU enablement → driver built on RHCOS.** EKS ships the driver in the AMI (`driver.enabled=false`); OpenShift runs immutable RHCOS, so the GPU Operator builds the kernel module in-cluster via the Driver Toolkit (`driver.enabled=true`) and **Node Feature Discovery must label GPU nodes first**. Time-slicing (`gpu/time-slicing-configmap.yaml`) is the device-level cost lever; MIG handles A100/H100 partitioning.
+- **Pod security → SCC `restricted-v2`.** Every app pod runs under `restricted-v2` (arbitrary assigned UID, no privilege escalation, all caps dropped). `values-openshift.yaml` makes the `securityContext` explicit and redirects the vLLM image's `$HOME`/cache writes to writable mounts so an arbitrary UID works — no custom SCC. The only privileged namespace is `nvidia-gpu-operator` (the driver build needs it).
+- **North-south ingress → Route.** The HAProxy `Route` (edge TLS) replaces ingress-nginx + cloud LB, with the router timeout bumped so streamed token responses aren't cut off.
+
+Node autoscaling on OpenShift is a tainted, autoscaling GPU **MachineSet** + cluster-autoscaler rather than Karpenter (Karpenter-for-OpenShift is not GA) — slightly slower burst, but the in-distribution supported path. The KEDA pod-level layer above it is unchanged. **Red Hat OpenShift AI (RHOAI)** is enabled alongside the DIY KServe/vLLM/MLflow stack: RHOAI serves the self-service/experimentation lane, the DIY vLLM Rollout serves the latency-critical, SLO-gated production lane.
 
 ## Local-mode adaptations
 

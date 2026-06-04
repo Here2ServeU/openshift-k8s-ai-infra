@@ -1,0 +1,39 @@
+---
+# GPU sharing profiles consumed by the ClusterPolicy's devicePlugin.config.
+#
+# Why this exists: an L4/T4 has no MIG support, but an eval/dev workload rarely
+# needs a whole GPU. Time-slicing advertises one physical GPU as N schedulable
+# nvidia.com/gpu resources so several low-traffic pods share it — the same
+# cost lever as scale-to-zero, applied at the device level. Production vLLM
+# serving stays on the "default" (whole-GPU, no sharing) profile.
+#
+# Opt a node pool in by labelling its nodes:
+#   oc label node <node> nvidia.com/device-plugin.config=tesla-t4-shared4
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-plugin-config
+  namespace: nvidia-gpu-operator
+data:
+  default: |-
+    version: v1
+    flags:
+      migStrategy: single
+  tesla-t4-shared4: |-
+    version: v1
+    flags:
+      migStrategy: none
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 4    # one T4 advertised as 4 schedulable GPUs
+  l40s-shared2: |-
+    version: v1
+    flags:
+      migStrategy: none
+    sharing:
+      timeSlicing:
+        resources:
+          - name: nvidia.com/gpu
+            replicas: 2

@@ -1,0 +1,27 @@
+{{- if .Values.route.enabled }}
+---
+# OpenShift Route — only rendered when route.enabled (values-openshift.yaml).
+# Normally the inference-gateway is the public edge; this is for a gateway-less
+# smoke test of the serving path on OpenShift.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: {{ include "llm-serving.name" . }}
+  labels: {{- include "llm-serving.labels" . | nindent 4 }}
+  annotations:
+    haproxy.router.openshift.io/timeout: {{ .Values.route.timeout | quote }}
+spec:
+  {{- with .Values.route.host }}
+  host: {{ . | quote }}
+  {{- end }}
+  to:
+    kind: Service
+    name: {{ include "llm-serving.name" . }}
+    weight: 100
+  port:
+    targetPort: http
+  tls:
+    termination: {{ .Values.route.tls.termination }}
+    insecureEdgeTerminationPolicy: {{ .Values.route.tls.insecureEdgeTerminationPolicy }}
+  wildcardPolicy: None
+{{- end }}

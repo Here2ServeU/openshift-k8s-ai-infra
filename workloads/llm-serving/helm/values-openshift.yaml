@@ -1,0 +1,91 @@
+# OpenShift profile — assumes terraform/rosa applied (ROSA HCP + GPU machine pool
+# + S3 bucket + OIDC role) and platform/openshift/ installed (NFD + GPU Operator).
+# The bootstrap renders cloud.* from `terraform output -json` just like the other clouds.
+#
+# What's different from values-aws.yaml:
+#   - securityContext made explicit so the pod admits under SCC restricted-v2
+#     (arbitrary assigned UID, runAsNonRoot, all caps dropped). See
+#     platform/openshift/scc/README.md.
+#   - HF/cache/HOME redirected to writable mounts so an arbitrary UID can write.
+#   - GPU node selector keys off NFD's label, not Karpenter's.
+cloud:
+  provider: openshift
+  # Rendered from `terraform -chdir=terraform/rosa output -json`.
+  modelBucketUri: "s3://ai-ml-infra-models-rosa"
+  modelPullerSA: "arn:aws:iam::123456789012:role/ai-ml-infra-model-puller"
+
+model:
+  name: llama3-8b
+  digest: "sha256:abcdef1234567890..."    # set by model-release GHA
+  contextLength: 8192
+  dtype: "bfloat16"
+
+runtime:
+  image: vllm/vllm-openai:v0.7.0   # CUDA build
+  args:
+    - --model=/models/$(MODEL_NAME)
+    - --served-model-name=$(MODEL_NAME)
+    - --max-num-seqs=64
+    - --max-num-batched-tokens=8192
+    - --enable-chunked-prefill
+    - --enable-prefix-caching
+    - --gpu-memory-utilization=0.90
+    - --dtype=bfloat16
+
+# Redirect everything the image would write to $HOME / cache into world-writable
+# mounts, so an OpenShift-assigned arbitrary UID (GID 0) can write them.
+extraEnv:
+  - name: HF_HOME
+    value: /models/.hf
+  - name: HUGGINGFACE_HUB_CACHE
+    value: /models/.hf
+  - name: XDG_CACHE_HOME
+    value: /tmp/.cache
+  - name: HOME
+    value: /tmp
+  - name: NUMBA_CACHE_DIR
+    value: /tmp/numba
+  - name: OUTLINES_CACHE_DIR
+    value: /tmp/outlines
+
+# Pod-level: let OpenShift assign UID/fsGroup from the namespace range (no runAsUser).
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+# Container-level: the restricted-v2 baseline.
+securityContext:
+  allowPrivilegeEscalation: false
+  runAsNonRoot: true
+  capabilities:
+    drop: [ALL]
+  seccompProfile:
+    type: RuntimeDefault
+
+resources:
+  requests:
+    cpu: "4"
+    memory: "16Gi"
+    nvidia.com/gpu: "1"
+  limits:
+    cpu: "8"
+    memory: "24Gi"
+    nvidia.com/gpu: "1"
+
+# NFD labels GPU nodes; the GPU machine pool also sets workload-type=serving.
+nodeSelector:
+  workload-type: serving
+  nvidia.com/gpu.present: "true"
+
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+
+rollout:
+  replicas: 2
+
+# Gateway is still the public edge; flip this on only for a gateway-less smoke test.
+route:
+  enabled: false
+  host: "llama3.apps.example.com"
