@@ -1,0 +1,80 @@
+---
+# ARC runner scale set as ArgoCD Applications (ADR-011) — the private-environment
+# CI build path. Two Applications, matching ARC's two-chart install: the
+# controller, then a runner scale set workflows target via
+# `runs-on: aks-private-builders`.
+#
+# Not referenced from app-of-apps by default: install only in environments
+# where hosted runners can't reach the cluster/registry (see README.md).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-controller
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set-controller
+    targetRevision: 0.9.3
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-systems
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: arc-runners
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: ghcr.io/actions/actions-runner-controller-charts
+    chart: gha-runner-scale-set
+    targetRevision: 0.9.3
+    helm:
+      values: |
+        githubConfigUrl: https://github.com/T2S   # org-level; placeholder owner, same as image names
+
+        # Auth via a GitHub App (installation-scoped, rotatable) — never a PAT.
+        # The secret is delivered by External Secrets Operator from Key Vault.
+        githubConfigSecret: arc-github-app
+
+        runnerScaleSetName: aks-private-builders
+
+        # Scale 0..8 on GitHub's job queue. Zero-floor: private builds are
+        # bursty and an idle runner is pure cost + attack surface.
+        minRunners: 0
+        maxRunners: 8
+
+        template:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+              seccompProfile:
+                type: RuntimeDefault
+            containers:
+              - name: runner
+                image: ghcr.io/actions/actions-runner:latest   # pin a digest in production
+                command: ["/home/runner/run.sh"]
+                resources:
+                  requests: { cpu: "1", memory: 2Gi }
+                  limits: { memory: 4Gi }
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop: ["ALL"]
+            nodeSelector:
+              workload-type: system
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: arc-runners
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }
+    syncOptions: [CreateNamespace=true, ServerSideApply=true]

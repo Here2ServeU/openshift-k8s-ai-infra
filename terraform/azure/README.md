@@ -3,11 +3,14 @@
 Provisions:
 
 - Resource group + VNet + subnet (single subnet — AKS handles pod IPs via Azure CNI).
-- AKS cluster (1.30) with OIDC + Workload Identity enabled.
+- AKS cluster (1.30) with OIDC + Workload Identity enabled, `patch` auto-upgrade + `NodeImage` node-OS channels constrained to weekly maintenance windows (ADR-011 — patching is a managed cadence, not an event).
 - System node pool (Standard_D4s_v5, 2-5 nodes).
 - Spot GPU node pool (Standard_NC4as_T4_v3 by default, 0-4 nodes, autoscaling).
+- Log Analytics workspace + workspace-based Application Insights + Container Insights + AKS control-plane diagnostics (`monitoring.tf`) — the audit/compliance surface; the in-cluster Prometheus stack stays the operator surface.
 - Azure Storage account + container for model artifacts (versioned, archive lifecycle for `raw/`).
 - User-assigned managed identity + role assignment + federated credential, the Azure equivalent of AWS IRSA / GCP Workload Identity.
+
+A compact Bicep rendering of the cluster + operations core lives in [`bicep/`](bicep/) for Azure-native shops; Terraform stays canonical (see ADR-011).
 
 ## Apply
 
@@ -39,6 +42,10 @@ Karpenter has Azure support in preview (`karpenter-provider-azure`). Once GA we'
 Outputs mirror the AWS and GCP root modules exactly (`model_bucket_uri`, `cluster_oidc_issuer`, etc.) so the workload Helm charts don't know which cloud they're running on. See [ADR-007](../../docs/decisions/007-multi-cloud-terraform.md).
 
 The one Azure-specific wrinkle: the `model_bucket_uri` uses the format `az://<container>@<account>` (rclone convention) because Azure Blob doesn't have a top-level URI scheme. The model-puller init-container's rclone wrapper handles all three (`s3://`, `gs://`, `az://`) transparently.
+
+## Observability cost note
+
+Log Analytics is priced per-GB ingested — it's the main new line item from `monitoring.tf`. Defaults are chosen accordingly: `kube-audit-admin` instead of the full `kube-audit` firehose, no metric categories in the diagnostic setting (metrics live in Prometheus), and 30-day interactive retention with archive tier beyond. HIPAA documentation retention is 6 years; configure the archive/export policy to match your compliance requirement, not the default.
 
 ## Production checklist
 

@@ -77,7 +77,37 @@ resource "azurerm_kubernetes_cluster" "aks" {
 
   monitor_metrics {} # enables managed Prometheus integration
 
+  # Container Insights — node/pod logs and inventory into Log Analytics.
+  # The audit/compliance surface; Grafana stays the operator surface (ADR-011).
+  oms_agent {
+    log_analytics_workspace_id = azurerm_log_analytics_workspace.ops.id
+  }
+
   azure_policy_enabled = true
+
+  # Patching is a managed cadence, not an event (ADR-011): control-plane patch
+  # versions and node OS CVEs auto-apply inside the window below. Kubernetes
+  # minor upgrades stay a deliberate, human-run change.
+  automatic_upgrade_channel = "patch"
+  node_os_upgrade_channel   = "NodeImage"
+
+  maintenance_window_auto_upgrade {
+    frequency   = "Weekly"
+    interval    = 1
+    duration    = 4
+    day_of_week = var.maintenance_day
+    start_time  = "02:00"
+    utc_offset  = "+00:00"
+  }
+
+  maintenance_window_node_os {
+    frequency   = "Weekly"
+    interval    = 1
+    duration    = 4
+    day_of_week = var.maintenance_day
+    start_time  = "06:00"
+    utc_offset  = "+00:00"
+  }
 
   tags = local.tags
 }
@@ -98,14 +128,14 @@ resource "azurerm_kubernetes_cluster_node_pool" "gpu" {
   eviction_policy = "Delete"
   spot_max_price  = -1 # pay up to on-demand price
 
-  node_count      = 0
-  min_count       = 0
-  max_count       = 4
+  node_count           = 0
+  min_count            = 0
+  max_count            = 4
   auto_scaling_enabled = true
 
   node_labels = {
-    "workload-type"      = "serving"
-    "nvidia.com/gpu"     = "true"
+    "workload-type"                         = "serving"
+    "nvidia.com/gpu"                        = "true"
     "kubernetes.azure.com/scalesetpriority" = "spot"
   }
 

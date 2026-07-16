@@ -56,3 +56,15 @@ variable "model_container_name" {
   type    = string
   default = "models"
 }
+
+variable "log_retention_days" {
+  description = "Interactive retention for the Log Analytics workspace. Audit retention beyond this goes to archive tier."
+  type        = number
+  default     = 30
+}
+
+variable "maintenance_day" {
+  description = "Day of week for the AKS auto-upgrade / node-OS maintenance windows."
+  type        = string
+  default     = "Sunday"
+}

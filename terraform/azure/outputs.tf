@@ -5,7 +5,7 @@ output "cluster_name" {
 }
 
 output "cluster_endpoint" {
-  value = azurerm_kubernetes_cluster.aks.kube_config.0.host
+  value     = azurerm_kubernetes_cluster.aks.kube_config.0.host
   sensitive = true
 }
 
@@ -38,4 +38,15 @@ output "node_gpu_label" {
 
 output "kubeconfig_command" {
   value = "az aks get-credentials --resource-group ${azurerm_resource_group.rg.name} --name ${azurerm_kubernetes_cluster.aks.name}"
+}
+
+output "log_analytics_workspace_id" {
+  description = "Workspace receiving Container Insights + AKS control-plane diagnostics."
+  value       = azurerm_log_analytics_workspace.ops.id
+}
+
+output "app_insights_connection_string" {
+  description = "Wire into the OTel Collector's azuremonitor exporter for the dual-export pipeline (ADR-011)."
+  value       = azurerm_application_insights.agents.connection_string
+  sensitive   = true
 }

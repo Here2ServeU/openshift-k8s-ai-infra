@@ -15,6 +15,7 @@ Oncall playbooks for the platform. Each one is structured the same way:
 | [cost-spike.md](cost-spike.md) | Unexpected cloud spend, idle GPUs, runaway scale |
 | [model-rollback.md](model-rollback.md) | Reverting a bad model digest, fast and slow paths |
 | [t2s-queue-backlog.md](t2s-queue-backlog.md) | SQS backlog, DLQ growth, stuck or saturated eval workers |
+| [aks-node-patching.md](aks-node-patching.md) | Stuck AKS upgrades, PDB-blocked drains, urgent CVE patching outside the window |
 
 ## Conventions
 

@@ -5,11 +5,12 @@ Welcome to the team. This folder is the working introduction to the T2S platform
 > Companion docs in this folder:
 >
 > - [first-90-days.md](first-90-days.md) — what we expect you to focus on in your first 30/60/90 days.
-> - [architecture-decisions.md](architecture-decisions.md) — the ten architectural calls you'll inherit, with the reasoning and the conditions that would flip them.
+> - [architecture-decisions.md](architecture-decisions.md) — the architectural calls you'll inherit, with the reasoning and the conditions that would flip them.
 > - [operating-principles.md](operating-principles.md) — how we operate the platform day-to-day: ownership, judgment, cross-functional influence, on-call.
 > - [voice-agent-infra.md](voice-agent-infra.md) — how the voice/text agent simulation layer sits on Kubernetes.
 > - [scaling-playbook.md](scaling-playbook.md) — how we plan and execute capacity changes (e.g. supporting 10× eval throughput).
 > - [openshift-platform.md](openshift-platform.md) — the four seams that differ when this platform runs on Red Hat OpenShift (OperatorHub/OLM, RHCOS GPU enablement, SCCs, Routes), plus ROSA/ARO/self-managed and RHOAI.
+> - [ai-agent-operations.md](ai-agent-operations.md) — operating headless AI agent workloads: attribution, recoverability, behavioral observability, and the incident patterns specific to agents in a HIPAA environment.
 
 ---
 

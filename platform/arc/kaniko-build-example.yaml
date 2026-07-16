@@ -1,0 +1,56 @@
+# The build step an ARC runner executes when Docker isn't available (and
+# shouldn't be): Kaniko builds the image in userspace and pushes by digest.
+# Runs clean under restricted PodSecurity / restricted-v2 SCC — no privileged
+# pods, no Docker socket, no root daemon.
+#
+# This is a standalone Job for illustration/debugging; in CI the same
+# container runs as a workflow step on the `aks-private-builders` scale set,
+# followed by the unchanged trivy-scan + cosign-sign steps from
+# .github/workflows/service-image-ci.yml.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kaniko-build-t2s-api
+  namespace: arc-runners
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: kaniko-build
+    spec:
+      restartPolicy: Never
+      serviceAccountName: kaniko-builder # Workload Identity -> registry push, no static creds
+      securityContext:
+        runAsNonRoot: false # Kaniko runs as root *inside its own userspace*, but needs no host privileges
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:v1.23.2
+          args:
+            - --context=git://github.com/T2S/t2s-api.git#refs/heads/main
+            - --dockerfile=Dockerfile
+            - --destination=ghcr.io/T2S/t2s-api:$(GIT_SHA)
+            # Layer cache lives in the registry, not a shared volume — nothing
+            # persists between ephemeral builds.
+            - --cache=true
+            - --cache-repo=ghcr.io/T2S/kaniko-cache
+            # Emit the digest for the cosign step; signing keys never enter
+            # the build pod.
+            - --digest-file=/dev/termination-log
+            - --reproducible
+          env:
+            - name: GIT_SHA
+              value: main # CI substitutes ${{ github.sha }}
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              memory: 8Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

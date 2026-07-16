@@ -24,6 +24,8 @@ The same manifests deploy locally on `kind` (for development and demos), on AWS 
 | **Retrieval + guardrails** | In-cluster Qdrant vector DB for embedding-backed eval suites and similarity-based prompt-injection canaries at the gateway |
 | **AI runtime security** | Llama Guard 2 sidecar called from the gateway via `ext_authz`; response-path PII / secret scanner; Garak red-team Argo Workflow gating canary→stable; swap path for Prisma AIRS / Lakera / Robust Intelligence |
 | **Security posture** | OWASP Top 10 (web + K8s + LLM) mapped to controls in-repo; Trivy + gitleaks + Semgrep wired into CI; IRSA / Workload Identity instead of static cloud keys |
+| **Azure ops & compliance hygiene** | AKS auto-patch cadence with maintenance windows, Log Analytics + App Insights dual-export alongside Prometheus, Key Vault/ESO secrets rotation, ARC in-cluster runners + Kaniko for private builds, a Bicep rendering of the AKS stack, and HIPAA operational posture + CVE/patching SLAs ([ADR-011](docs/decisions/011-azure-operations.md)) |
+| **AI agent operations** | Operating headless AI agents as production workloads: per-agent identity, budget caps, checkpointed runs with drain-on-rollout, behavioral baselines and per-integration health metrics ([docs/onboarding/ai-agent-operations.md](docs/onboarding/ai-agent-operations.md)) |
 | **Python automation** | Operational scripts for SQS audit, cost reporting, model-artifact validation, GPU-utilization reporting, and SLO burn checks |
 
 ---
